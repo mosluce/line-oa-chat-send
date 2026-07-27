@@ -23,12 +23,11 @@ The command attaches to an existing local Chromium DevTools (CDP) endpoint. It d
 
 ## Usage
 
-Run the script from the repository root. Set paths for your own Python virtual environment and Playwright browser installation.
+Run the launcher from the repository root. It selects the dedicated LINE OA runtime, including the Python environment with Playwright and the matching browser cache. Do **not** invoke the system `python3` directly: it does not include Playwright in this environment.
 
 ```bash
 # Safe default: find and open a uniquely matched chat, but do not send anything.
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "Message text"
 ```
@@ -36,17 +35,18 @@ PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
 To send a message, use `--send` **only** after the recipient and exact text have been explicitly authorized:
 
 ```bash
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "Message text" \
   --send
 ```
 
+The launcher defaults to `/opt/data/.line-oa-automation`. To use an intentionally different runtime, set `LINE_OA_RUNTIME_ROOT`; `LINE_OA_PYTHON` and `PLAYWRIGHT_BROWSERS_PATH` are also available for advanced overrides.
+
 View all options with:
 
 ```bash
-python scripts/send_line_oa_chat.py --help
+bash scripts/run_line_oa_chat.sh --help
 ```
 
 ## Safety behavior
@@ -62,9 +62,12 @@ python scripts/send_line_oa_chat.py --help
 The command can be tested safely against an authenticated session with a dry run:
 
 ```bash
-python -m py_compile scripts/send_line_oa_chat.py
-python scripts/send_line_oa_chat.py --help
-python scripts/send_line_oa_chat.py \
+# Verify the implementation itself.
+/opt/data/.line-oa-automation/venv/bin/python -m py_compile scripts/send_line_oa_chat.py
+
+# Verify the shared runtime launcher and safely exercise the authenticated UI.
+bash scripts/run_line_oa_chat.sh --help
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "CLI dry-run verification"
 ```

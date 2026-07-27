@@ -21,19 +21,19 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
 ## CLI script
-Use `scripts/send_line_oa_chat.py` rather than rewriting Playwright code for routine messages. It connects only to an already-running, locally reachable CDP endpoint; it does not perform login or accept credentials.
+Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line_oa_chat.py` directly. The launcher selects the dedicated LINE OA runtime, which already contains Playwright and its browser cache. It connects only to an already-running, locally reachable CDP endpoint; it does not perform login or accept credentials.
 
 ```bash
 # Safe default: find and open the uniquely matched chat, but do not send.
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "默司" --message "test message"
 
 # Send only after the user explicitly authorizes this exact recipient and message.
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "默司" --message "test message" --send
 ```
+
+The default runtime root is `/opt/data/.line-oa-automation`. If a different runtime is deliberately installed, set `LINE_OA_RUNTIME_ROOT` (or `LINE_OA_PYTHON` and `PLAYWRIGHT_BROWSERS_PATH`) before calling the launcher. Do not substitute the system `python3`: it does not include Playwright in this environment.
 
 The script refuses ambiguous recipient results, requires `--send` for the external side effect, and exits non-zero when session/UI verification fails. After sending, it verifies that the composer cleared and the exact text appeared in the active transcript. Do not retry a failed verification until the protected browser is inspected, because LINE may already have accepted the message.
 
