@@ -11,14 +11,14 @@ for command in Xvfb x11vnc websockify caddy cloudflared; do
   command -v "$command" >/dev/null 2>&1 || missing+=("$command")
 done
 if ((${#missing[@]})); then
-  if [[ "$(id -u)" -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
-    printf 'Installing missing protected-handoff dependencies as root: %s\n' "${missing[*]}" >&2
+  if command -v apt-get >/dev/null 2>&1; then
+    printf 'Attempting dependency provisioning without sudo (uid %s): %s\n' "$(id -u)" "${missing[*]}" >&2
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
     apt-get install -y xvfb x11vnc novnc websockify caddy cloudflared
   else
     printf 'ERROR: missing protected-handoff dependencies: %s\n' "${missing[*]}" >&2
-    printf 'This process is uid %s; it will not invoke sudo. Re-run as root on an apt-based host to auto-install them.\n' "$(id -u)" >&2
+    printf 'No apt-get is available; provisioning cannot continue without a supported package manager.\n' >&2
     exit 2
   fi
 fi
