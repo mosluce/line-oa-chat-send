@@ -1,31 +1,35 @@
 #!/usr/bin/env bash
-# Run the LINE OA CLI with the dedicated runtime that contains Playwright.
-# Override LINE_OA_RUNTIME_ROOT, LINE_OA_PYTHON, or PLAYWRIGHT_BROWSERS_PATH
-# only when intentionally using a different local runtime.
+# Portable launcher for the LINE OA CDP client. It does not start or log into a browser.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-runtime_root="${LINE_OA_RUNTIME_ROOT:-/opt/data/.line-oa-automation}"
-python_bin="${LINE_OA_PYTHON:-${runtime_root}/venv/bin/python}"
-browsers_path="${PLAYWRIGHT_BROWSERS_PATH:-${runtime_root}/ms-playwright}"
 
-if [[ ! -x "$python_bin" ]]; then
-  printf 'ERROR: LINE OA runtime Python not found: %s\n' "$python_bin" >&2
-  printf 'Set LINE_OA_RUNTIME_ROOT or LINE_OA_PYTHON to an installed local runtime.\n' >&2
-  exit 2
+if [[ -n "${LINE_OA_PYTHON:-}" ]]; then
+  if [[ ! -x "$LINE_OA_PYTHON" ]]; then
+    printf 'ERROR: LINE_OA_PYTHON is not executable: %s\n' "$LINE_OA_PYTHON" >&2
+    exit 2
+  fi
+  if ! "$LINE_OA_PYTHON" -c 'import playwright' >/dev/null 2>&1; then
+    printf 'ERROR: Playwright is unavailable in LINE_OA_PYTHON: %s\n' "$LINE_OA_PYTHON" >&2
+    printf 'Run scripts/setup_line_oa_runtime.sh with an explicit --runtime-dir, then export LINE_OA_PYTHON.\n' >&2
+    exit 2
+  fi
+  exec "$LINE_OA_PYTHON" "$script_dir/send_line_oa_chat.py" "$@"
 fi
 
-if ! "$python_bin" -c 'import playwright' >/dev/null 2>&1; then
-  printf 'ERROR: Playwright is unavailable in %s\n' "$python_bin" >&2
-  printf 'Install Playwright into that dedicated runtime; do not use the system Python.\n' >&2
-  exit 2
+for candidate in "${PYTHON:-}" python3 python; do
+  [[ -n "$candidate" ]] || continue
+  if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import playwright' >/dev/null 2>&1; then
+    exec "$candidate" "$script_dir/send_line_oa_chat.py" "$@"
+  fi
+done
+
+if command -v uv >/dev/null 2>&1; then
+  # Creates/reuses uv's managed cache only; does not create a browser profile or handle credentials.
+  exec uv run --no-project --with playwright python "$script_dir/send_line_oa_chat.py" "$@"
 fi
 
-if [[ ! -d "$browsers_path" ]]; then
-  printf 'ERROR: Playwright browser cache not found: %s\n' "$browsers_path" >&2
-  printf 'Set PLAYWRIGHT_BROWSERS_PATH to the matching local browser cache.\n' >&2
-  exit 2
-fi
-
-export PLAYWRIGHT_BROWSERS_PATH="$browsers_path"
-exec "$python_bin" "$script_dir/send_line_oa_chat.py" "$@"
+printf 'ERROR: No Python runtime with Playwright was found.\n' >&2
+printf 'Install uv, then run: bash scripts/setup_line_oa_runtime.sh --runtime-dir <private-runtime-dir>\n' >&2
+printf 'After setup: export LINE_OA_PYTHON=<private-runtime-dir>/venv/bin/python\n' >&2
+exit 2

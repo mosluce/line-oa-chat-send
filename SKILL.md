@@ -20,8 +20,21 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
+## Environment preflight and safe provisioning
+Do **not** assume a particular home directory, virtual environment, browser cache, profile directory, or runtime folder exists. The only runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
+
+1. Run the launcher once. It first honors an explicit `LINE_OA_PYTHON`, then any current `python3`/`python` that already imports Playwright, then uses `uv run --with playwright` when `uv` is available.
+2. If that reports that no Playwright runtime is available, create one in an operator-chosen private location—never in a fixed path and never inside the persistent browser profile:
+   ```bash
+   bash scripts/setup_line_oa_runtime.sh --runtime-dir "$HOME/.local/share/line-oa-chat-runtime"
+   export LINE_OA_PYTHON="$HOME/.local/share/line-oa-chat-runtime/venv/bin/python"
+   ```
+   The example path is only a suggestion; the operator may choose any private writable directory. The setup script requires `uv`, creates a `700`-permission virtual environment, and installs only the Playwright Python package. It never creates a Chromium profile, performs login, or handles credentials.
+3. If Chromium/CDP is unavailable, do not start a second browser against an existing profile. Ask the operator to start exactly one headed Chromium with a private user-data directory and a loopback-only CDP endpoint; then have the user complete any login or security challenge through the protected interactive GUI. Use `--cdp-url` when the local endpoint is not the default `http://127.0.0.1:9222`.
+4. If the authenticated `https://chat.line.biz/` page is absent, expired, or blocked by a security challenge, stop. Only the user may resolve it through the protected GUI.
+
 ## CLI script
-Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line_oa_chat.py` directly. The launcher selects the dedicated LINE OA runtime, which already contains Playwright and its browser cache. It connects only to an already-running, locally reachable CDP endpoint; it does not perform login or accept credentials.
+Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line_oa_chat.py` directly. It connects only to an already-running local CDP endpoint; it does not perform login or accept credentials.
 
 ```bash
 # Safe default: find and open the uniquely matched chat, but do not send.
@@ -32,8 +45,6 @@ bash scripts/run_line_oa_chat.sh \
 bash scripts/run_line_oa_chat.sh \
   --recipient "默司" --message "test message" --send
 ```
-
-The default runtime root is `/opt/data/.line-oa-automation`. If a different runtime is deliberately installed, set `LINE_OA_RUNTIME_ROOT` (or `LINE_OA_PYTHON` and `PLAYWRIGHT_BROWSERS_PATH`) before calling the launcher. Do not substitute the system `python3`: it does not include Playwright in this environment.
 
 The script refuses ambiguous recipient results, requires `--send` for the external side effect, and exits non-zero when session/UI verification fails. After sending, it verifies that the composer cleared and the exact text appeared in the active transcript. Do not retry a failed verification until the protected browser is inspected, because LINE may already have accepted the message.
 
