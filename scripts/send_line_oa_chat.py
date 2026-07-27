@@ -12,7 +12,16 @@ import sys
 import time
 from dataclasses import dataclass
 
-from playwright.sync_api import Error, Locator, Page, sync_playwright
+try:
+    from playwright.sync_api import Error, Locator, Page, sync_playwright
+except ModuleNotFoundError:
+    print(
+        "ERROR: Playwright is not installed in this Python. Run "
+        "scripts/run_line_oa_chat.sh, or provision a private runtime with "
+        "scripts/setup_line_oa_runtime.sh --runtime-dir <private-runtime-dir>.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 @dataclass(frozen=True)

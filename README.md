@@ -16,19 +16,31 @@ The command attaches to an existing local Chromium DevTools (CDP) endpoint. It d
 
 1. A user-authenticated LINE OA Chat session is open in Chromium.
 2. Chromium exposes a local CDP endpoint (the default is `http://127.0.0.1:9222`).
-3. Python with Playwright is available, and the matching Playwright browser files are installed.
+3. Python with the `playwright` package is available. Browser downloads are not required because this tool attaches to an existing Chromium over CDP.
 4. The person running the command has explicit authorization for the recipient and outgoing message.
 
 > **Authentication:** complete LINE login, password entry, QR confirmation, MFA, OTP, and security prompts yourself in the interactive browser. This project never accepts, stores, or transmits those secrets.
 
+## Environment setup
+
+No runtime directory is assumed. The launcher checks an explicit `LINE_OA_PYTHON`, then current `python3`/`python`, and finally uses `uv run --with playwright` when `uv` is installed.
+
+If none is available, provision a private runtime in an explicit location chosen by the operator:
+
+```bash
+bash scripts/setup_line_oa_runtime.sh --runtime-dir "$HOME/.local/share/line-oa-chat-runtime"
+export LINE_OA_PYTHON="$HOME/.local/share/line-oa-chat-runtime/venv/bin/python"
+```
+
+The path above is an example only. The setup script never creates or accesses a browser profile, never opens a login flow, and never handles credentials. If CDP is unavailable, start one headed Chromium with a private profile and loopback-only CDP endpoint, then have the user log in through a protected interactive GUI. Do not start a second browser against an existing profile.
+
 ## Usage
 
-Run the script from the repository root. Set paths for your own Python virtual environment and Playwright browser installation.
+Run the launcher from the repository root:
 
 ```bash
 # Safe default: find and open a uniquely matched chat, but do not send anything.
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "Message text"
 ```
@@ -36,17 +48,16 @@ PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
 To send a message, use `--send` **only** after the recipient and exact text have been explicitly authorized:
 
 ```bash
-PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
-/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "Message text" \
   --send
 ```
 
-View all options with:
+Use `--cdp-url` if the local endpoint is not the default. View all options with:
 
 ```bash
-python scripts/send_line_oa_chat.py --help
+bash scripts/run_line_oa_chat.sh --help
 ```
 
 ## Safety behavior
@@ -62,9 +73,12 @@ python scripts/send_line_oa_chat.py --help
 The command can be tested safely against an authenticated session with a dry run:
 
 ```bash
-python -m py_compile scripts/send_line_oa_chat.py
-python scripts/send_line_oa_chat.py --help
-python scripts/send_line_oa_chat.py \
+# Direct Python reports a concrete recovery instruction when Playwright is missing.
+python3 scripts/send_line_oa_chat.py --help
+
+# The portable launcher selects or provisions a valid Python runtime.
+bash scripts/run_line_oa_chat.sh --help
+bash scripts/run_line_oa_chat.sh \
   --recipient "Recipient name" \
   --message "CLI dry-run verification"
 ```
