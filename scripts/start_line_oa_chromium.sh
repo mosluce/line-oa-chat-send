@@ -50,9 +50,19 @@ if [[ ! -e "$profile_dir" ]]; then
 fi
 [[ -d "$profile_dir" && -r "$profile_dir" && -w "$profile_dir" ]] || die "profile path must be a readable/writable directory: $profile_dir"
 [[ "$cdp_port" =~ ^[0-9]{1,5}$ ]] && (( cdp_port > 0 && cdp_port < 65536 )) || die "--cdp-port must be 1-65535"
-[[ -n "$display" ]] || die "a headed display is required; pass --display or set DISPLAY."
+xvfb_pid=""
+if [[ -z "$display" ]]; then
+  command -v Xvfb >/dev/null 2>&1 || die "a headed display is required and Xvfb is unavailable. Install Xvfb or pass --display / set DISPLAY."
+  display="${LINE_OA_SEND_CHAT_XVFB_DISPLAY:-:99}"
+  Xvfb "$display" -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+  xvfb_pid="$!"
+  trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT INT TERM
+  sleep 0.2
+  kill -0 "$xvfb_pid" 2>/dev/null || die "could not start private Xvfb display $display; choose LINE_OA_SEND_CHAT_XVFB_DISPLAY or provide DISPLAY."
+  printf 'Started private Xvfb display %s for this Chromium session.\n' "$display"
+fi
 
-if curl --max-time 2 -fsS "http://127.0.0.1:${cdp_port}/json/version" >/dev/null; then
+if curl --max-time 2 -fsS "http://127.0.0.1:${cdp_port}/json/version" >/dev/null 2>&1; then
   die "CDP is already reachable on 127.0.0.1:${cdp_port}; reuse it instead of starting another Chromium."
 fi
 
@@ -64,9 +74,26 @@ if [[ -z "$chromium_bin" ]]; then
     fi
   done
 fi
-[[ -n "$chromium_bin" && -x "$chromium_bin" ]] || die "Chromium was not found. Pass --chromium PATH or set LINE_OA_CHROMIUM to an executable."
+if [[ -z "$chromium_bin" && -n "${LINE_OA_SEND_CHAT_BROWSER_DIR:-}" && -d "$LINE_OA_SEND_CHAT_BROWSER_DIR" ]]; then
+  chromium_bin="$(find "$LINE_OA_SEND_CHAT_BROWSER_DIR" -type f -path '*/chrome-linux*/chrome' -perm -u+x -print -quit 2>/dev/null || true)"
+fi
+[[ -n "$chromium_bin" && -x "$chromium_bin" ]] || die "Chromium was not found. Set LINE_OA_CHROMIUM, install a system Chromium, or run scripts/setup_line_oa_runtime.sh and export LINE_OA_SEND_CHAT_BROWSER_DIR."
 
 printf 'Starting headed Chromium with loopback CDP on 127.0.0.1:%s.\n' "$cdp_port"
+if [[ -n "$xvfb_pid" ]]; then
+  trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT INT TERM
+  env DISPLAY="$display" "$chromium_bin" \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port="$cdp_port" \
+    --remote-allow-origins='*' \
+    --user-data-dir="$profile_dir" \
+    --no-first-run \
+    --no-default-browser-check \
+    https://chat.line.biz/ &
+  chromium_pid="$!"
+  wait "$chromium_pid"
+  exit $?
+fi
 exec env DISPLAY="$display" "$chromium_bin" \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="$cdp_port" \

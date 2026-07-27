@@ -50,17 +50,24 @@ When the user says the LINE OA work is finished, close Chromium to release serve
 A later start with the same private persistent profile will usually retain LINE login, but LINE may still expire or revoke the session and require user reauthentication through the protected GUI.
 
 ## Environment preflight and safe provisioning
+Before reporting that the environment is unavailable, **the agent must inspect and prepare it itself**. Do not merely ask the operator to install a missing Python package, browser, profile directory, or display when the following safe steps can resolve it.
+
+1. Select a private runtime directory from `LINE_OA_SEND_CHAT_RUNTIME_DIR`, or use `${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send`. This is runtime/cache data only; never place it inside the Chromium profile or Git repository.
+2. If Playwright, its managed Chromium, or the selected runtime is absent, provision all three in one command:
+   ```bash
+   runtime_dir="${LINE_OA_SEND_CHAT_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send}"
+   bash scripts/setup_line_oa_runtime.sh --runtime-dir "$runtime_dir"
+   export LINE_OA_PYTHON="$runtime_dir/venv/bin/python"
+   export LINE_OA_SEND_CHAT_BROWSER_DIR="$runtime_dir/ms-playwright"
+   ```
+   The setup script creates private `700` directories, installs the Python Playwright dependency, and downloads its managed Chromium into the private runtime. It never reads a browser profile or handles LINE credentials. Use `--skip-browser-install` only for a client-only/CDP test that will not launch Chromium.
+3. Run `scripts/start_line_oa_chromium.sh`. It creates the selected profile directory when absent and, if `DISPLAY` is missing, starts a private local `Xvfb` display for the lifetime of its Chromium child. It does **not** expose VNC, noVNC, CDP, or a GUI to the network. A protected GUI-sharing service remains an operator-controlled prerequisite for user login.
+4. If `uv` or `Xvfb` is missing, or package download is blocked, report exactly that host-level blocker and its command output. Do not silently use `sudo`, alter system packages, install a public remote-desktop service, or weaken network bindings.
+5. After provisioning, health-check CDP and inspect the LINE page. A new profile will require the user to authenticate through the protected GUI; this is a security checkpoint, not an install failure.
+
 Do **not** assume a particular home directory, virtual environment, browser cache, or runtime folder exists. For browser-profile selection specifically, use `LINE_OA_SEND_CHAT_CHROMIUM_PROFILE` or its explicit fallback `/opt/data/chromium` as described above. The runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
 
-1. Run the launcher once. It first honors an explicit `LINE_OA_PYTHON`, then any current `python3`/`python` that already imports Playwright, then uses `uv run --with playwright` when `uv` is available.
-2. If that reports that no Playwright runtime is available, create one in an operator-chosen private location—never in a fixed path and never inside the persistent browser profile:
-   ```bash
-   bash scripts/setup_line_oa_runtime.sh --runtime-dir "$HOME/.local/share/line-oa-chat-runtime"
-   export LINE_OA_PYTHON="$HOME/.local/share/line-oa-chat-runtime/venv/bin/python"
-   ```
-   The example path is only a suggestion; the operator may choose any private writable directory. The setup script requires `uv`, creates a `700`-permission virtual environment, and installs only the Playwright Python package. It never creates a Chromium profile, performs login, or handles credentials.
-3. If Chromium/CDP is unavailable, do not start a second browser against an existing profile. Ask the operator to start exactly one headed Chromium with a private user-data directory and a loopback-only CDP endpoint; then have the user complete any login or security challenge through the protected interactive GUI. Use `--cdp-url` when the local endpoint is not the default `http://127.0.0.1:9222`.
-4. If the authenticated `https://chat.line.biz/` page is absent, expired, or blocked by a security challenge, stop. Only the user may resolve it through the protected GUI.
+The portable launcher still honors an explicit `LINE_OA_PYTHON`, then any current Python that imports Playwright, then `uv run --with playwright`. It connects only to an existing CDP browser; it does not log in or accept credentials.
 
 ## CLI script
 Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line_oa_chat.py` directly. It connects only to an already-running local CDP endpoint; it does not perform login or accept credentials.
@@ -68,11 +75,11 @@ Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line
 ```bash
 # Safe default: find and open the uniquely matched chat, but do not send.
 bash scripts/run_line_oa_chat.sh \
-  --recipient "默司" --message "test message"
+  --recipient "<exact recipient>" --message "<message>"
 
 # Send only after the user explicitly authorizes this exact recipient and message.
 bash scripts/run_line_oa_chat.sh \
-  --recipient "默司" --message "test message" --send
+  --recipient "<exact recipient>" --message "<message>" --send
 ```
 
 The script refuses ambiguous recipient results, requires `--send` for the external side effect, and exits non-zero when session/UI verification fails. After sending, it verifies that the composer cleared and the exact text appeared in the active transcript. Do not retry a failed verification until the protected browser is inspected, because LINE may already have accepted the message.
@@ -89,8 +96,8 @@ The script refuses ambiguous recipient results, requires `--send` for the extern
 ```python
 from playwright.sync_api import sync_playwright
 
-recipient = "默司"
-message = "測試訊息"
+recipient = "<exact recipient>"
+message = "<message>"
 with sync_playwright() as p:
     browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
     page = next(pg for ctx in browser.contexts for pg in ctx.pages
@@ -110,15 +117,28 @@ with sync_playwright() as p:
 See [LINE OA UI selector notes](references/line-oa-ui-selectors.md) for the current DOM patterns and responsive-layout behavior observed in the web client.
 
 ## Publishing updates
-When changing this skill in its GitHub repository, use the normal Git/PR lifecycle rather than committing to `main` directly:
-1. Start from the current `main` branch and create a focused branch such as `docs/update-authentication`.
-2. Validate the edited `SKILL.md`, commit the change, and push the branch.
-3. Use GitHub CLI (`gh pr create`) to open a PR that summarizes the change and its verification.
-4. Leave the PR unmerged for the user to review. Merge only after the user explicitly approves it.
+When changing this skill in its GitHub repository, use the normal Git/PR lifecycle rather than committing to `main` directly.
+
+### Making the repository public
+Use [the public repository checklist](references/public-repository-checklist.md) for the full audit, settings, and verification sequence.
+
+Before changing visibility, audit **all reachable Git history**, not only the current files: old commits and merged PRs remain visible after publication. Scan for credentials, authentication headers, tunnel/share URLs, browser-profile data, and host-specific runtime paths, reporting only commit IDs and pattern categories—not matched secret values. Remove or rewrite genuinely sensitive history before publication.
+
+Apply public-facing settings before changing visibility: remove unused collaboration surfaces, enable automatic deletion of merged branches, and disable unused Actions until a reviewed workflow exists. After changing visibility, verify the repository and README through an unauthenticated request, then enable supported public-repository security controls (secret scanning, push protection, Dependabot). GitHub may automatically enable or reject some settings for public repositories, so read back the resulting state. Treat LICENSE selection as a separate legal decision; do not choose one without the user’s direction.
+
+1. Run `gh auth status` in the same OS user and runtime that will run Git/`gh` commands. A GitHub browser session or CLI login in another shell/user does not authenticate this runtime.
+2. If CLI auth is missing, start the browser/device flow with `gh auth login --hostname github.com --git-protocol https --web`. When the user asks to “just run it and give me the code,” run the flow directly and reply only with the generated one-time device code plus `https://github.com/login/device`; do not add extra explanation. Wait for their authorization, then verify with `gh auth status` before proceeding.
+3. Start from the current `main` branch and create a focused branch such as `docs/update-authentication`.
+4. Validate the edited `SKILL.md`, commit the change, and push the branch.
+5. Use GitHub CLI (`gh pr create`) to open a PR that summarizes the change and its verification.
+6. Test the exact remote PR revision before reporting it: obtain `headRefOid` with `gh pr view <number> --json headRefOid`, then check out that SHA in a clean worktree and run Python compilation, `--help`, and a no-send dry-run against the authenticated LINE UI. If a shallow clone has a restrictive fetch refspec and `gh pr checkout` cannot set tracking for the PR branch, create a local non-tracking branch at the verified `headRefOid` (for example, `git switch -c pr-<number> <sha>`). Do not test an unverified local copy instead.
+7. Treat documentation-only changes (including README updates) as repository changes too: branch, validate, push, open a PR, and leave it unmerged for review.
+8. Merge only after the user explicitly approves it. A concise `merge` instruction is sufficient authorization; use a squash merge and delete the feature branch, then verify the PR state and remote branch deletion with `gh`.
 
 ## Pitfalls
 - `get_by_text(recipient, exact=True)` may target the signed-in account menu instead of the chat result when names collide.
 - On a narrow layout the matching chat label may have no bounding box because the sidebar hides text, while its containing chat-list `<a>` is still clickable. Locate the anchor from the matching `<mark>` instead of treating a hidden label as a failed search.
+- Playwright placeholder matching is substring-based by default. Use `page.get_by_placeholder("搜尋", exact=True)` so the chat-list search does not also match LINE's unrelated `輸入搜尋內容` field.
 - `get_by_placeholder(...)` can match both the custom `textarea-ex` host and its internal textarea. Use `textarea-ex >> textarea` / chained locators so Playwright targets the true editable element.
 - A successful click alone is not sufficient; always verify the exact outgoing text in the active transcript after submission, preferably in the recent transcript tail rather than via a broad page-wide match.
 - If the recipient search yields more than one distinct chat, stop and ask the user which conversation to use.
