@@ -6,8 +6,24 @@ set -euo pipefail
 runtime_dir="${LINE_OA_SEND_CHAT_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send}"
 profile_dir="${LINE_OA_SEND_CHAT_CHROMIUM_PROFILE:-/opt/data/chromium}"
 display="${LINE_OA_SEND_CHAT_XVFB_DISPLAY:-:99}"
+missing=()
 for command in Xvfb x11vnc websockify caddy cloudflared; do
-  command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: missing %s; install the protected-handoff host dependencies first.\n' "$command" >&2; exit 2; }
+  command -v "$command" >/dev/null 2>&1 || missing+=("$command")
+done
+if ((${#missing[@]})); then
+  if [[ "$(id -u)" -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
+    printf 'Installing missing protected-handoff dependencies as root: %s\n' "${missing[*]}" >&2
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y xvfb x11vnc novnc websockify caddy cloudflared
+  else
+    printf 'ERROR: missing protected-handoff dependencies: %s\n' "${missing[*]}" >&2
+    printf 'This process is uid %s; it will not invoke sudo. Re-run as root on an apt-based host to auto-install them.\n' "$(id -u)" >&2
+    exit 2
+  fi
+fi
+for command in Xvfb x11vnc websockify caddy cloudflared; do
+  command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: dependency still missing after provisioning: %s\n' "$command" >&2; exit 2; }
 done
 novnc_root=""
 for candidate in /usr/share/novnc /usr/share/noVNC; do [[ -d "$candidate" ]] && { novnc_root="$candidate"; break; }; done
