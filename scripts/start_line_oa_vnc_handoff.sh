@@ -28,9 +28,27 @@ for candidate in /usr/share/novnc /usr/share/noVNC; do [[ -d "$candidate" ]] && 
 
 mkdir -p "$runtime_dir/handoff"
 chmod 700 "$runtime_dir" "$runtime_dir/handoff"
+pick_loopback_port() {
+  python3 - "$1" "$2" <<'PY'
+import socket, sys
+for port in range(int(sys.argv[1]), int(sys.argv[2]) + 1):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        continue
+    finally:
+        sock.close()
+    print(port)
+    raise SystemExit(0)
+raise SystemExit("No free loopback port in requested range")
+PY
+}
+vnc_port="$(pick_loopback_port 5900 5999)"
+websockify_port="$(pick_loopback_port 6080 6099)"
 token="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 config="$runtime_dir/handoff/Caddyfile"
-printf '{ auto_https off }\nhttp://127.0.0.1:6081 {\n  @private path /%s/*\n  handle @private { uri strip_prefix /%s; reverse_proxy 127.0.0.1:6080 }\n  respond 404\n}\n' "$token" "$token" > "$config"
+printf '{\n  auto_https off\n}\n:6081 {\n  bind 127.0.0.1\n  @private path /%s/*\n  handle @private {\n    uri strip_prefix /%s\n    reverse_proxy 127.0.0.1:%s\n  }\n  respond 404\n}\n' "$token" "$token" "$websockify_port" > "$config"
 chmod 600 "$config"
 
 cleanup() { kill "${tunnel_pid:-}" "${caddy_pid:-}" "${websockify_pid:-}" "${vnc_pid:-}" "${chrome_pid:-}" "${xvfb_pid:-}" 2>/dev/null || true; }
@@ -38,8 +56,8 @@ trap cleanup EXIT INT TERM
 Xvfb "$display" -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 & xvfb_pid=$!
 sleep .2; kill -0 "$xvfb_pid" 2>/dev/null || { printf 'ERROR: Xvfb failed.\n' >&2; exit 2; }
 DISPLAY="$display" LINE_OA_SEND_CHAT_CHROMIUM_PROFILE="$profile_dir" bash "$(dirname "$0")/start_line_oa_chromium.sh" & chrome_pid=$!
-x11vnc -display "$display" -localhost -nopw -forever -shared -rfbport 5900 >/dev/null 2>&1 & vnc_pid=$!
-websockify --web "$novnc_root" 127.0.0.1:6080 127.0.0.1:5900 >/dev/null 2>&1 & websockify_pid=$!
+x11vnc -display "$display" -localhost -nopw -forever -shared -noxrecord -noxfixes -noxdamage -rfbport "$vnc_port" >/dev/null 2>&1 & vnc_pid=$!
+websockify --web "$novnc_root" "127.0.0.1:$websockify_port" "127.0.0.1:$vnc_port" >/dev/null 2>&1 & websockify_pid=$!
 caddy run --config "$config" --adapter caddyfile >/dev/null 2>&1 & caddy_pid=$!
 log="$runtime_dir/handoff/cloudflared.log"
 cloudflared tunnel --no-autoupdate --url http://127.0.0.1:6081 >"$log" 2>&1 & tunnel_pid=$!
