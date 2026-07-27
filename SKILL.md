@@ -21,17 +21,17 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
 ## Starting Chromium and CDP
-When the CDP endpoint is unavailable, start **one** headed Chromium using the existing private persistent profile; do not start a second instance against that profile and do not create a new profile for an established session.
+When the CDP endpoint is unavailable, start **one** headed Chromium. Its persistent profile path is selected by `LINE_OA_SEND_CHAT_CHROMIUM_PROFILE`, falling back to `/opt/data/chromium`; the startup helper creates that directory with permission mode `700` when it is absent.
 
-1. Ensure a protected headed display already exists (`DISPLAY` or `--display`) and select the existing private profile directory. The profile directory must already exist, be owned by the operator, and never be committed, copied, or inspected.
-2. Select the Chromium executable explicitly with `LINE_OA_CHROMIUM` / `--chromium`, or let the startup script discover a system Chromium command. Do not hard-code a host-specific executable path in the skill.
+1. Ensure a protected headed display already exists (`DISPLAY` or `--display`). The profile contains retained LINE session data: never commit, copy, inspect, or disclose it. A newly created fallback profile is not logged in, so the user must authenticate through the protected GUI before any send.
+2. Select the Chromium executable explicitly with `LINE_OA_CHROMIUM` / `--chromium`, or let the startup script discover a system Chromium command.
 3. Start the foreground process through a supervisor or tracked background process:
    ```bash
-   export LINE_OA_PROFILE_DIR="/private/operator-chosen/chrome-profile"
+   export LINE_OA_SEND_CHAT_CHROMIUM_PROFILE="/private/operator-chosen/chrome-profile"  # optional; default: /opt/data/chromium
    export LINE_OA_CHROMIUM="/path/to/chromium"  # optional when Chromium is on PATH
-   bash scripts/start_line_oa_chromium.sh --profile-dir "$LINE_OA_PROFILE_DIR"
+   bash scripts/start_line_oa_chromium.sh
    ```
-   The script binds CDP only to `127.0.0.1:9222`, refuses to start if that endpoint already responds, and opens `https://chat.line.biz/`. It does not log in, create a profile, or expose VNC/CDP publicly.
+   `--profile-dir` can override the environment-selected profile for one invocation. The script binds CDP only to `127.0.0.1:9222`, refuses to start if that endpoint already responds, and opens `https://chat.line.biz/`. It does not log in or expose VNC/CDP publicly.
 4. Confirm CDP is live before using the send CLI:
    ```bash
    curl --max-time 3 -fsS http://127.0.0.1:9222/json/version >/dev/null
@@ -50,7 +50,7 @@ When the user says the LINE OA work is finished, close Chromium to release serve
 A later start with the same private persistent profile will usually retain LINE login, but LINE may still expire or revoke the session and require user reauthentication through the protected GUI.
 
 ## Environment preflight and safe provisioning
-Do **not** assume a particular home directory, virtual environment, browser cache, profile directory, or runtime folder exists. The only runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
+Do **not** assume a particular home directory, virtual environment, browser cache, or runtime folder exists. For browser-profile selection specifically, use `LINE_OA_SEND_CHAT_CHROMIUM_PROFILE` or its explicit fallback `/opt/data/chromium` as described above. The runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
 
 1. Run the launcher once. It first honors an explicit `LINE_OA_PYTHON`, then any current `python3`/`python` that already imports Playwright, then uses `uv run --with playwright` when `uv` is available.
 2. If that reports that no Playwright runtime is available, create one in an operator-chosen private location—never in a fixed path and never inside the persistent browser profile:

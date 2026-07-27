@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 # Start exactly one headed Chromium with a private persistent profile and loopback CDP.
-# This script never logs in to LINE, never creates a profile, and runs Chromium in the foreground.
+# This script never logs in to LINE; it creates only the selected profile directory when absent and runs Chromium in the foreground.
 set -euo pipefail
 
-profile_dir=""
+profile_dir="${LINE_OA_SEND_CHAT_CHROMIUM_PROFILE:-/opt/data/chromium}"
+profile_dir_source="LINE_OA_SEND_CHAT_CHROMIUM_PROFILE (or fallback /opt/data/chromium)"
 chromium_bin="${LINE_OA_CHROMIUM:-}"
 cdp_port="9222"
 display="${DISPLAY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: start_line_oa_chromium.sh --profile-dir DIR [options]
+Usage: start_line_oa_chromium.sh [options]
 
-Start a headed Chromium with a pre-existing private profile and loopback-only CDP.
-
-Required:
-  --profile-dir DIR       Existing private persistent Chromium profile directory
+Start a headed Chromium with a persistent profile and loopback-only CDP.
+The profile comes from LINE_OA_SEND_CHAT_CHROMIUM_PROFILE, falling back to
+/opt/data/chromium. The directory is created with mode 700 when absent.
 
 Options:
+  --profile-dir DIR       Override the environment-selected profile directory
   --chromium PATH         Chromium executable (or set LINE_OA_CHROMIUM)
   --cdp-port PORT         Loopback CDP port (default: 9222)
   --display DISPLAY       Headed X display (default: $DISPLAY)
@@ -31,7 +32,7 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --profile-dir) profile_dir="${2:-}"; shift 2 ;;
+    --profile-dir) profile_dir="${2:-}"; profile_dir_source="--profile-dir"; shift 2 ;;
     --chromium) chromium_bin="${2:-}"; shift 2 ;;
     --cdp-port) cdp_port="${2:-}"; shift 2 ;;
     --display) display="${2:-}"; shift 2 ;;
@@ -40,8 +41,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$profile_dir" ]] || die "--profile-dir is required; do not create a new profile for an existing LINE session."
-[[ -d "$profile_dir" && -r "$profile_dir" && -w "$profile_dir" ]] || die "profile directory must already exist and be readable/writable: $profile_dir"
+[[ -n "$profile_dir" ]] || die "profile directory is empty; set LINE_OA_SEND_CHAT_CHROMIUM_PROFILE or pass --profile-dir."
+if [[ ! -e "$profile_dir" ]]; then
+  umask 077
+  mkdir -p -- "$profile_dir"
+  chmod 700 -- "$profile_dir"
+  printf 'Created private Chromium profile directory from %s: %s\n' "$profile_dir_source" "$profile_dir"
+fi
+[[ -d "$profile_dir" && -r "$profile_dir" && -w "$profile_dir" ]] || die "profile path must be a readable/writable directory: $profile_dir"
 [[ "$cdp_port" =~ ^[0-9]{1,5}$ ]] && (( cdp_port > 0 && cdp_port < 65536 )) || die "--cdp-port must be 1-65535"
 [[ -n "$display" ]] || die "a headed display is required; pass --display or set DISPLAY."
 
