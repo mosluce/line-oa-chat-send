@@ -20,6 +20,17 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
+## Shutdown after use
+When the user says the LINE OA work is finished, close Chromium to release server resources while preserving the private persistent profile for later reuse.
+
+1. Confirm no send, dry-run, setup, or user GUI interaction is active. If an unfinished composer draft or another user session may be open, ask before closing.
+2. Identify exactly one operator-owned Chromium root process through its configured local CDP endpoint or service supervisor. Do not rely on a fixed binary path, profile path, PID, or a broad `pkill` pattern.
+3. Send the root process a graceful termination signal (`SIGTERM`) and allow it time to exit. Do not delete, copy, inspect, or modify the persistent browser profile; it contains the retained session.
+4. Verify the local CDP endpoint is unreachable and Chromium browser/renderer processes have exited. A crash-report helper may remain briefly and does not retain the browser session.
+5. If the browser does not exit after the graceful timeout, report the blocker and wait for user direction before using a forced kill. Shut down any protected VNC/noVNC/tunnel components separately only when they exist solely for this browser and are no longer needed.
+
+A later start with the same private persistent profile will usually retain LINE login, but LINE may still expire or revoke the session and require user reauthentication through the protected GUI.
+
 ## Environment preflight and safe provisioning
 Do **not** assume a particular home directory, virtual environment, browser cache, profile directory, or runtime folder exists. The only runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
 
