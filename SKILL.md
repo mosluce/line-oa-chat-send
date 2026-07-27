@@ -20,6 +20,23 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
+## CLI script
+Use `scripts/send_line_oa_chat.py` rather than rewriting Playwright code for routine messages. It connects only to an already-running, locally reachable CDP endpoint; it does not perform login or accept credentials.
+
+```bash
+# Safe default: find and open the uniquely matched chat, but do not send.
+PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
+/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+  --recipient "默司" --message "test message"
+
+# Send only after the user explicitly authorizes this exact recipient and message.
+PLAYWRIGHT_BROWSERS_PATH=/path/to/playwright-browsers \
+/path/to/venv/bin/python scripts/send_line_oa_chat.py \
+  --recipient "默司" --message "test message" --send
+```
+
+The script refuses ambiguous recipient results, requires `--send` for the external side effect, and exits non-zero when session/UI verification fails. After sending, it verifies that the composer cleared and the exact text appeared in the active transcript. Do not retry a failed verification until the protected browser is inspected, because LINE may already have accepted the message.
+
 ## Procedure
 1. Connect with Playwright's sync API over CDP. Inspect all open pages and select the page whose URL begins with `https://chat.line.biz/`.
 2. Inspect the chat page before acting. Use the sidebar input with `aria-label="搜尋"` / placeholder `搜尋` to search the requested recipient.
@@ -38,7 +55,7 @@ with sync_playwright() as p:
     browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
     page = next(pg for ctx in browser.contexts for pg in ctx.pages
                 if pg.url.startswith("https://chat.line.biz/"))
-    search = page.get_by_placeholder("搜尋")
+    search = page.get_by_placeholder("搜尋", exact=True)
     search.fill(recipient)
     page.wait_for_timeout(800)
     chat = page.locator("mark").filter(has_text=recipient).first.locator("xpath=ancestor::a")
@@ -51,6 +68,13 @@ with sync_playwright() as p:
 
 ## UI reference
 See [LINE OA UI selector notes](references/line-oa-ui-selectors.md) for the current DOM patterns and responsive-layout behavior observed in the web client.
+
+## Publishing updates
+When changing this skill in its GitHub repository, use the normal Git/PR lifecycle rather than committing to `main` directly:
+1. Start from the current `main` branch and create a focused branch such as `docs/update-authentication`.
+2. Validate the edited `SKILL.md`, commit the change, and push the branch.
+3. Use GitHub CLI (`gh pr create`) to open a PR that summarizes the change and its verification.
+4. Leave the PR unmerged for the user to review. Merge only after the user explicitly approves it.
 
 ## Pitfalls
 - `get_by_text(recipient, exact=True)` may target the signed-in account menu instead of the chat result when names collide.
