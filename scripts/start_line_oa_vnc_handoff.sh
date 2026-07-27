@@ -12,8 +12,11 @@ for command in Xvfb x11vnc websockify caddy cloudflared; do
 done
 if ((${#missing[@]})); then
   printf 'ERROR: missing protected-handoff dependencies: %s\n' "${missing[*]}" >&2
-  printf 'Install command (run by an identity with host package permission; no sudo is invoked by this skill):\n' >&2
-  printf '  apt-get update && apt-get install -y xvfb x11vnc novnc websockify caddy cloudflared\n' >&2
+  printf 'Install commands (run by an identity with host package permission; no sudo is invoked by this skill):\n' >&2
+  printf '  apt-get update && apt-get install -y xvfb x11vnc novnc websockify caddy\n' >&2
+  printf '  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg\n' >&2
+  printf '  printf "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main\\n" > /etc/apt/sources.list.d/cloudflared.list\n' >&2
+  printf '  apt-get update && apt-get install -y cloudflared\n' >&2
   exit 2
 fi
 for command in Xvfb x11vnc websockify caddy cloudflared; do
