@@ -20,6 +20,24 @@ A user provides or has already opened a LINE OA Chat URL and asks to send a spec
 4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
 
+## Starting Chromium and CDP
+When the CDP endpoint is unavailable, start **one** headed Chromium using the existing private persistent profile; do not start a second instance against that profile and do not create a new profile for an established session.
+
+1. Ensure a protected headed display already exists (`DISPLAY` or `--display`) and select the existing private profile directory. The profile directory must already exist, be owned by the operator, and never be committed, copied, or inspected.
+2. Select the Chromium executable explicitly with `LINE_OA_CHROMIUM` / `--chromium`, or let the startup script discover a system Chromium command. Do not hard-code a host-specific executable path in the skill.
+3. Start the foreground process through a supervisor or tracked background process:
+   ```bash
+   export LINE_OA_PROFILE_DIR="/private/operator-chosen/chrome-profile"
+   export LINE_OA_CHROMIUM="/path/to/chromium"  # optional when Chromium is on PATH
+   bash scripts/start_line_oa_chromium.sh --profile-dir "$LINE_OA_PROFILE_DIR"
+   ```
+   The script binds CDP only to `127.0.0.1:9222`, refuses to start if that endpoint already responds, and opens `https://chat.line.biz/`. It does not log in, create a profile, or expose VNC/CDP publicly.
+4. Confirm CDP is live before using the send CLI:
+   ```bash
+   curl --max-time 3 -fsS http://127.0.0.1:9222/json/version >/dev/null
+   ```
+   Then inspect the existing LINE OA page. If LINE requires login, QR, MFA, OTP, or a challenge, only the user may resolve it through the protected GUI.
+
 ## Shutdown after use
 When the user says the LINE OA work is finished, close Chromium to release server resources while preserving the private persistent profile for later reuse.
 
