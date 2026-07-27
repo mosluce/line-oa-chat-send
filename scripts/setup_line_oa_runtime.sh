@@ -4,6 +4,7 @@
 set -euo pipefail
 
 runtime_dir=""
+install_browser=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runtime-dir)
@@ -11,8 +12,12 @@ while [[ $# -gt 0 ]]; do
       runtime_dir="$2"
       shift 2
       ;;
+    --skip-browser-install)
+      install_browser=0
+      shift
+      ;;
     --help|-h)
-      printf 'Usage: %s --runtime-dir <private-runtime-directory>\n' "${0##*/}"
+      printf 'Usage: %s --runtime-dir <private-runtime-directory> [--skip-browser-install]\n' "${0##*/}"
       exit 0
       ;;
     *)
@@ -36,6 +41,13 @@ chmod 700 "$runtime_dir"
 uv venv "$runtime_dir/venv"
 uv pip install --python "$runtime_dir/venv/bin/python" playwright
 chmod 700 "$runtime_dir/venv"
+browser_dir="$runtime_dir/ms-playwright"
+if (( install_browser )); then
+  mkdir -p "$browser_dir"
+  chmod 700 "$browser_dir"
+  PLAYWRIGHT_BROWSERS_PATH="$browser_dir" "$runtime_dir/venv/bin/python" -m playwright install chromium
+fi
 printf 'SETUP OK\n'
 printf 'Next: export LINE_OA_PYTHON=%q\n' "$runtime_dir/venv/bin/python"
-printf 'Then: bash scripts/run_line_oa_chat.sh --recipient "Recipient name" --message "Message text"\n'
+printf 'Next: export LINE_OA_SEND_CHAT_BROWSER_DIR=%q\n' "$browser_dir"
+printf 'Then: bash scripts/start_line_oa_chromium.sh\n'
