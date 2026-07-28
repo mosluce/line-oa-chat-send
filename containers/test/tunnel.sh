@@ -71,8 +71,11 @@ fi
 [ -f \"\$LINE_OA_SEND_CHAT_RUNTIME_DIR/handoff.env\" ] && ok 'existing handoff left intact' || bad 'existing handoff left intact'
 
 printf '\n== 6.7 handoff run log holds no secret ==\n'
-hlog=\$(ls -1t \"\$LINE_OA_SEND_CHAT_RUNTIME_DIR\"/timing/handoff-*.log | head -1)
-grep -q 'tunnel_url' \"\$hlog\" && ok 'phases recorded' || bad 'phases recorded'
+# Every invocation gets a log, including ones refused before a tunnel exists, so
+# pick the log belonging to the run that actually armed.
+hlog=\$(grep -l 'tunnel_url' \"\$LINE_OA_SEND_CHAT_RUNTIME_DIR\"/timing/handoff-*.log 2>/dev/null | tail -1)
+if [ -n \"\$hlog\" ]; then ok 'phases recorded'; else bad 'phases recorded'; hlog=\$(ls -1t \"\$LINE_OA_SEND_CHAT_RUNTIME_DIR\"/timing/handoff-*.log | head -1); fi
+grep -q 'dns_resolved' \"\$hlog\" && ok 'DNS phase recorded separately' || bad 'DNS phase recorded separately'
 if grep -qiE 'trycloudflare|vnc.html|websockify\?|[0-9a-f]{64}' \"\$hlog\"; then
   bad 'run log free of URL and token'
 else
@@ -96,12 +99,15 @@ fi
 bash scripts/stop_line_oa_vnc_handoff.sh >/dev/null 2>&1
 
 printf '\n== 6.6 verification failure prints no URL and revokes ==\n'
-# Force failure by pointing verification at a deadline it cannot meet.
-out=\$(LINE_OA_SEND_CHAT_HANDOFF_VERIFY_TIMEOUT=1 bash scripts/start_line_oa_vnc_handoff.sh 2>&1)
+# Forcing this needs the grace window removed as well as a short deadline: with
+# the default grace the name has usually resolved before the deadline is ever
+# checked, so the run legitimately succeeds.
+out=\$(LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE=0 LINE_OA_SEND_CHAT_HANDOFF_VERIFY_TIMEOUT=1 \
+      bash scripts/start_line_oa_vnc_handoff.sh 2>&1)
 code=\$?
 if [ \$code -ne 0 ]; then ok 'failed verification exits non-zero'; else bad 'failed verification exits non-zero'; fi
 printf '%s' \"\$out\" | grep -q 'trycloudflare' && bad 'no URL printed on failure' || ok 'no URL printed on failure'
-printf '%s' \"\$out\" | grep -q 'url_verified' && ok 'failing phase named' || bad 'failing phase named'
+printf '%s' \"\$out\" | grep -q 'FAILED_' && ok 'failing phase named' || bad 'failing phase named'
 sleep 2
 pgrep -x cloudflared >/dev/null && bad 'everything started was revoked' || ok 'everything started was revoked'
 [ -f \"\$LINE_OA_SEND_CHAT_RUNTIME_DIR/handoff.env\" ] && bad 'handoff state cleaned up' || ok 'handoff state cleaned up'

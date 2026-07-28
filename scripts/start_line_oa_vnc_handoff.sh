@@ -20,8 +20,11 @@ source "$script_dir/lib/phase_timing.sh"
 
 handoff_purpose="${LINE_OA_SEND_CHAT_HANDOFF_PURPOSE:-}"
 handoff_ttl_seconds="${LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS:-900}"
-verify_timeout="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_TIMEOUT:-90}"
+verify_timeout="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_TIMEOUT:-180}"
 url_timeout="${LINE_OA_SEND_CHAT_HANDOFF_URL_TIMEOUT:-60}"
+# Quiet window before the first DNS lookup. Probing sooner poisons the
+# resolver's negative cache and delays verification rather than hurrying it.
+verify_grace="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE:-20}"
 
 phase_init handoff
 phase_mark script_entry
@@ -118,11 +121,41 @@ phase_mark tunnel_url
 # public URL is fetched and its content checked. Nothing is printed until this
 # passes, which makes "never share an unverified bearer URL" a property of the
 # script rather than an instruction someone has to remember.
+#
+# Two rules govern the polling, and both come from measurement:
+#
+#   1. Do not query before the record can plausibly exist. A fresh
+#      trycloudflare.com hostname is not immediately resolvable, and a lookup
+#      that misses is cached as a negative answer. Re-querying keeps refreshing
+#      that negative entry, so eager probing makes verification take *longer*
+#      than doing nothing. Observed: polling every second never resolved within
+#      120s, while a single lookup after 45s of quiet resolved immediately.
+#   2. Back off. Any caching resolver -- systemd-resolved, dnsmasq, a container
+#      runtime's embedded DNS -- does negative caching, so this is not a
+#      container artifact.
 public_url="${url}/${token}/vnc.html?autoconnect=true&path=${token}/websockify"
+tunnel_host="${url#https://}"
 probe_file="$(mktemp)"
 trap 'rm -f "$probe_file"' EXIT
+
+sleep "$verify_grace"
+
+# DNS first, as its own phase: it separates "the name has propagated" from "the
+# tunnel carries traffic", which are different waits with different causes.
+waited="$verify_grace"
+backoff=5
+while ! getent hosts "$tunnel_host" >/dev/null 2>&1; do
+  kill -0 "$tunnel_pid" 2>/dev/null || fail_phase dns_resolved "cloudflared exited before its hostname resolved; see $tunnel_log"
+  waited="$(awk -v w="$waited" -v b="$backoff" 'BEGIN{printf "%.1f", w+b}')"
+  awk -v w="$waited" -v d="$verify_timeout" 'BEGIN{exit !(w<d)}' \
+    || fail_phase dns_resolved "the tunnel hostname did not resolve within ${verify_timeout}s"
+  sleep "$backoff"
+  backoff="$(awk -v b="$backoff" 'BEGIN{b=b*1.5; if(b>20)b=20; printf "%.1f", b}')"
+done
+phase_mark dns_resolved
+
 verified=0
-waited=0
+backoff=2
 while :; do
   code="$(curl -s -o "$probe_file" -w '%{http_code}' --max-time 10 "$public_url" 2>/dev/null || echo 000)"
   if [[ "$code" == "200" ]] && grep -qi 'novnc' "$probe_file"; then
@@ -130,10 +163,11 @@ while :; do
     break
   fi
   kill -0 "$tunnel_pid" 2>/dev/null || fail_phase url_verified "cloudflared exited during verification; see $tunnel_log"
-  waited="$(awk -v w="$waited" 'BEGIN{printf "%.1f", w+0.5}')"
+  waited="$(awk -v w="$waited" -v b="$backoff" 'BEGIN{printf "%.1f", w+b}')"
   awk -v w="$waited" -v d="$verify_timeout" 'BEGIN{exit !(w<d)}' \
     || fail_phase url_verified "the public URL did not become usable within ${verify_timeout}s (last HTTP status ${code})"
-  sleep 0.5
+  sleep "$backoff"
+  backoff="$(awk -v b="$backoff" 'BEGIN{b=b*1.5; if(b>15)b=15; printf "%.1f", b}')"
 done
 (( verified )) || fail_phase url_verified "verification did not pass"
 phase_mark url_verified

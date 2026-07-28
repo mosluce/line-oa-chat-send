@@ -6,7 +6,7 @@
 - [x] 1.4 Print a phase summary at the end of the run; assert the summary contains no URL, route token, or credential
 - [ ] 1.5 **TARGET HOST ONLY** Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
 - [ ] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
-- [ ] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline: is the Quick Tunnel URL routable when printed, and which pole dominates — Chromium cold start or tunnel registration
+- [ ] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline. Partly answered in the container: the URL is *not* routable when printed (emitted ~2.8s, resolves only during a later quiet window), and eager probing poisons the resolver's negative cache. What remains: the shortest safe DNS grace window, now the dominant term in arming
 
 > Tasks 1.5–1.7 must run on the target Linux host. The container test
 > environment distorts both startup poles unpredictably and is not authoritative
@@ -59,13 +59,13 @@
 > target-host run; `containers/test/default.sh` already covers the pre-tunnel
 > refusal cases against the current scripts. Task 6.8 is target-host only.
 
-- [ ] 6.1 Arm a handoff while a browser session is running and confirm it succeeds and the session is uninterrupted
-- [ ] 6.2 Revoke the handoff and confirm Chromium, the display, and the authenticated profile survive
-- [ ] 6.3 Send a message immediately after revocation without restarting the browser
-- [ ] 6.4 Arm a second handoff on the same session to confirm mid-session re-authentication works
-- [ ] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
-- [ ] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
-- [ ] 6.7 Confirm the run log contains phase timings and no URL, route token, or credential
+- [x] 6.1 Arm a handoff while a browser session is running and confirm it succeeds and the session is uninterrupted
+- [x] 6.2 Revoke the handoff and confirm Chromium, the display, and the authenticated profile survive
+- [ ] 6.3 **TARGET HOST ONLY** Send a message immediately after revocation without restarting the browser (needs a real authenticated LINE session, which the credential-free container cannot provide)
+- [x] 6.4 Arm a second handoff on the same session to confirm mid-session re-authentication works
+- [x] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
+- [x] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
+- [x] 6.7 Confirm the run log contains phase timings and no URL, route token, or credential
 - [ ] 6.8 **TARGET HOST ONLY** Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
 
 ## 6a. Findings surfaced by the container test environment

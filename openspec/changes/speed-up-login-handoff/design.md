@@ -76,6 +76,36 @@ This turns a multi-turn agent loop into a single tool call, and makes the "never
 
 Alternative considered: leaving verification in `SKILL.md`. Rejected — it is the single largest paragraph in the skill and the most likely source of agent round-trips.
 
+### Verification waits before it probes, because probing early makes it slower
+
+Discovered during implementation, and it inverts the obvious approach.
+
+A fresh `trycloudflare.com` hostname is not resolvable at the moment cloudflared
+prints it. A lookup that misses is cached as a negative answer, and re-querying
+keeps refreshing that negative entry, so an eager polling loop can hold itself
+in failure well past actual propagation. Measured in the container:
+
+| Approach | Outcome |
+| --- | --- |
+| Probe immediately, poll every 1s | Hostname never resolved within 120s |
+| Wait 45s quietly, then query once | Resolved on the first query |
+
+This is not a container artifact. Every caching resolver — systemd-resolved,
+dnsmasq, a container runtime's embedded DNS — does negative caching, so the same
+trap exists on the target host.
+
+The verification therefore waits a quiet grace window before its first lookup,
+then backs off progressively, and treats DNS resolution as its own phase
+separate from HTTP reachability. The two are different waits with different
+causes, and separating them is what makes the remaining cost legible.
+
+Observed on a successful arm in the container: URL emitted at 2.8s, hostname
+resolved on the first query after the 20s grace, HTTP verified 0.9s later.
+The grace window is therefore the dominant term and is a conservative guess —
+the true propagation floor is unmeasured and somewhere below it. Tuning it down
+is the main remaining latency lever, and it belongs to the target-host
+measurement, because finding the floor means probing near it.
+
 ### Readiness checks replace liveness checks and fixed sleeps
 
 - Xvfb: poll for the X socket instead of `sleep .2` followed by `kill -0`. The current check confirms the process exists, not that the display accepts connections, so it is both slower than necessary in the common case and unreliable in the slow case.
@@ -99,5 +129,7 @@ The Caddyfile keeps a host-agnostic site address with `bind 127.0.0.1`, since bi
 
 ## Open Questions
 
-- Is a Cloudflare Quick Tunnel URL routable at the moment cloudflared prints it, or does edge propagation add a measurable delay? The instrumentation answers this on the first run; the answer decides whether any further latency work is worth doing.
+- ~~Is a Cloudflare Quick Tunnel URL routable at the moment cloudflared prints it?~~ **Partly answered: no.** In the container the URL is emitted at ~2.8s and is not resolvable then; the hostname resolves during a quiet window afterwards. What remains unmeasured is *how long* propagation actually takes, because the 20s grace window is a conservative guess that succeeds on its first lookup. Finding the real floor requires probing near it without poisoning the negative cache, and belongs to the target-host measurement.
+- What is the shortest safe grace window before the first DNS lookup? This is now the dominant term in arming a handoff, so it is the main remaining latency lever. Target host only.
+- Which pole dominates end to end — the session cold start or the tunnel? The container's session start is 0.53s against a 23.8s arm, but attach mode already removes the session from the handoff path, so on the target host the question narrows to how much of the tunnel term is reducible.
 - How much of the end-to-end interval sits in agent turns rather than in the script? One manual measurement against the script's entry timestamp settles it.
