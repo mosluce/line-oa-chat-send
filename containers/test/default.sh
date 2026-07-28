@@ -63,31 +63,48 @@ check 'profile is on container-native storage' bash "$run" full \
 refuses 'host profile override is refused' 2 'never uses a host profile' \
   env LINE_OA_SEND_CHAT_CHROMIUM_PROFILE=/tmp/pretend-real-profile bash "$run" full true
 
-printf '\n== browser session ==\n'
-check 'session starts, CDP responds, LINE login page loads' bash "$run" full bash -lc '
-  bash scripts/start_line_oa_chromium.sh >/tmp/c.log 2>&1 &
-  for _ in $(seq 1 60); do curl --max-time 2 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; sleep 1; done
-  curl --max-time 3 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 || { tail -5 /tmp/c.log; exit 1; }
-  curl -fsS http://127.0.0.1:9222/json/list | grep -q "line.biz" || { echo "no LINE page"; exit 1; }'
-check 'second session is refused' bash "$run" full bash -lc '
-  bash scripts/start_line_oa_chromium.sh >/tmp/c.log 2>&1 &
-  for _ in $(seq 1 60); do curl --max-time 2 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; sleep 1; done
-  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 && { echo "second start was allowed"; exit 1; }
+printf '\n== browser session lifecycle ==\n'
+check 'session starts, CDP responds, LINE login page loads, state recorded' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/tmp/s.log 2>&1 || { tail -5 /tmp/s.log; exit 1; }
+  curl --max-time 3 -fsS http://127.0.0.1:9222/json/version >/dev/null || exit 1
+  curl -fsS http://127.0.0.1:9222/json/list | grep -q "line.biz" || { echo "no LINE page"; exit 1; }
+  [ -f "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env" ] || { echo "no state file"; exit 1; }'
+# The session guard now runs ahead of display setup, so the refusal names the
+# live session whether or not DISPLAY is set. Previously a start with no DISPLAY
+# died at Xvfb and reported a display error instead of the real reason.
+check 'second session is refused, naming the live session (no DISPLAY)' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  out="$(bash scripts/start_line_oa_chromium.sh 2>&1)" && { echo "second start allowed"; exit 1; }
+  grep -qF "already reachable" <<<"$out" || { echo "wrong message: $out"; exit 1; }
+  grep -qF "Xvfb" <<<"$out" && { echo "still reports Xvfb: $out"; exit 1; }
   exit 0'
-# Two paths, and which one fires depends on whether DISPLAY is already set. The
-# CDP "already running" guard sits behind display setup, so without DISPLAY the
-# operator is told Xvfb failed rather than that a session is already running.
-# Recorded as a finding for speed-up-login-handoff.
-check 'without DISPLAY the refusal names Xvfb, not the live session' bash "$run" full bash -lc '
-  bash scripts/start_line_oa_chromium.sh >/tmp/c.log 2>&1 &
-  for _ in $(seq 1 60); do curl --max-time 2 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; sleep 1; done
-  out="$(bash scripts/start_line_oa_chromium.sh 2>&1)" || true
-  grep -qF "could not start private Xvfb display" <<<"$out"'
-check 'with DISPLAY set the refusal names the live CDP endpoint' bash "$run" full bash -lc '
-  bash scripts/start_line_oa_chromium.sh >/tmp/c.log 2>&1 &
-  for _ in $(seq 1 60); do curl --max-time 2 -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; sleep 1; done
+check 'second session is refused, naming the live session (DISPLAY set)' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
   out="$(DISPLAY=:99 bash scripts/start_line_oa_chromium.sh 2>&1)" || true
   grep -qF "already reachable" <<<"$out"'
+check 'shutdown stops the session and leaves the profile' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  out="$(bash scripts/stop_line_oa_chromium.sh 2>&1)" || { echo "$out"; exit 1; }
+  grep -qF "CDP endpoint is unreachable" <<<"$out" || exit 1
+  grep -qF "persistent profile is unchanged" <<<"$out" || exit 1
+  [ -f "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env" ] && { echo "state file survived"; exit 1; }
+  [ -d /opt/data/chromium ] || { echo "profile removed"; exit 1; }
+  exit 0'
+check 'a stale profile lock does not block the next start' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  pid=$(grep ^chromium_pid= "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env" | cut -d= -f2)
+  kill -KILL "$pid" 2>/dev/null || true            # hard kill leaves SingletonLock behind
+  sleep 1; rm -f "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env"
+  pkill -f Xvfb 2>/dev/null || true; sleep 1
+  out="$(bash scripts/start_line_oa_chromium.sh 2>&1)" || { echo "$out"; exit 1; }
+  grep -qF "Cleared a stale profile lock" <<<"$out"'
+
+printf '\n== front end is closed while no handoff is armed ==\n'
+check 'caddy answers 404 on an unarmed session' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  port=$(grep ^caddy_port= "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env" | cut -d= -f2)
+  code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/anything")
+  [ "$code" = 404 ] || { echo "got $code"; exit 1; }'
 
 printf '\n== handoff refusals (all pre-tunnel) ==\n'
 refuses 'missing handoff purpose' 2 'LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login' \
@@ -100,18 +117,49 @@ refuses 'TTL above range' 2 'must be an integer from 60 to 3600' \
   bash "$run" full bash -lc 'LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=3601 bash scripts/start_line_oa_vnc_handoff.sh'
 refuses 'non-numeric TTL' 2 'must be an integer from 60 to 3600' \
   bash "$run" full bash -lc 'LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=abc bash scripts/start_line_oa_vnc_handoff.sh'
+refuses 'no browser session' 2 'no browser session is running' \
+  bash "$run" full bash -lc 'LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh'
+refuses 'stale session state' 2 'not live' \
+  bash "$run" full bash -lc '
+    mkdir -p "$LINE_OA_SEND_CHAT_RUNTIME_DIR"
+    printf "display=:99\ncdp_url=http://127.0.0.1:9222\n" > "$LINE_OA_SEND_CHAT_RUNTIME_DIR/session.env"
+    LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh'
+check 'a refused handoff creates no external route' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=1 \
+    bash scripts/start_line_oa_vnc_handoff.sh >/dev/null 2>&1 || true
+  pgrep -x cloudflared >/dev/null && { echo "cloudflared is running"; exit 1; }
+  [ -f "$LINE_OA_SEND_CHAT_RUNTIME_DIR/handoff.env" ] && { echo "handoff state left behind"; exit 1; }
+  exit 0'
+
+printf '\n== phase timing ==\n'
+check 'session run log records phases and holds no secret' bash "$run" full bash -lc '
+  bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1 || exit 1
+  log=$(ls -1 "$LINE_OA_SEND_CHAT_RUNTIME_DIR"/timing/session-*.log | head -1)
+  grep -q "cdp_reachable" "$log" || { echo "no phases"; exit 1; }
+  grep -q "caddy_listening" "$log" || { echo "missing phase"; exit 1; }
+  grep -qiE "trycloudflare|token=|password|https://" "$log" && { echo "secret-like content in log"; exit 1; }
+  [ "$(stat -c %a "$log")" = 600 ] || { echo "log mode $(stat -c %a "$log")"; exit 1; }
+  exit 0'
 
 printf '\n== dependency detection drives real verdicts ==\n'
-refuses 'no-handoff-deps names the missing commands' 2 'missing protected-handoff dependencies' \
+# Dependencies moved with the components they belong to: the session owns the
+# display and screen-sharing stack, the handoff owns only the tunnel client.
+refuses 'no-handoff-deps: session names its missing commands' 2 'missing browser-session dependencies' \
+  bash "$run" no-handoff-deps bash scripts/start_line_oa_chromium.sh
+refuses 'no-handoff-deps: handoff names the missing tunnel client' 2 'missing handoff dependency: cloudflared' \
   bash "$run" no-handoff-deps bash -lc 'LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh'
 refuses 'no-runtime reports no Playwright runtime' 2 'No Python runtime with Playwright' \
   bash "$run" no-runtime bash scripts/run_line_oa_chat.sh --recipient x --message y
 # The disclaimer text mentions sudo, so the assertion is that no line *invokes*
 # sudo, not that the word is absent.
 check 'no-handoff-deps prints operator install instructions, invoking no sudo' bash -c '
-  out="$(bash '"$run"' no-handoff-deps bash -lc "LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh" 2>&1 || true)"
-  grep -q "apt-get install" <<<"$out" || { echo "no install instructions"; exit 1; }
-  grep -qE "^[[:space:]]*sudo " <<<"$out" && { echo "instructions invoke sudo"; exit 1; }
+  for cmd in "bash scripts/start_line_oa_chromium.sh" \
+             "LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh"; do
+    out="$(bash '"$run"' no-handoff-deps bash -lc "$cmd" 2>&1 || true)"
+    grep -q "apt-get" <<<"$out" || { echo "no install instructions from: $cmd"; exit 1; }
+    grep -qE "^[[:space:]]*sudo " <<<"$out" && { echo "instructions invoke sudo"; exit 1; }
+  done
   exit 0'
 check 'unauth-profile has an initialized but session-free profile' bash "$run" unauth-profile \
   bash -lc '[ -e /opt/data/chromium/Default ] || { echo "profile not initialized"; exit 1; }'
