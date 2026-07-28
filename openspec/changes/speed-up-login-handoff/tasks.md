@@ -4,9 +4,14 @@
 - [ ] 1.2 Instrument the existing `start_line_oa_vnc_handoff.sh` phases: script entry, Xvfb ready, Chromium spawned, CDP reachable, LINE page present, x11vnc listening, websockify listening, Caddy listening, tunnel URL emitted
 - [ ] 1.3 Add a public-URL reachability probe that records the interval from tunnel URL emitted to first HTTP 200 containing `noVNC`
 - [ ] 1.4 Print a phase summary at the end of the run; assert the summary contains no URL, route token, or credential
-- [ ] 1.5 Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
-- [ ] 1.6 Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
-- [ ] 1.7 Answer the design's open questions from the baseline: is the Quick Tunnel URL routable when printed, and which pole dominates — Chromium cold start or tunnel registration
+- [ ] 1.5 **TARGET HOST ONLY** Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
+- [ ] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
+- [ ] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline: is the Quick Tunnel URL routable when printed, and which pole dominates — Chromium cold start or tunnel registration
+
+> Tasks 1.5–1.7 must run on the target Linux host. The container test
+> environment distorts both startup poles unpredictably and is not authoritative
+> for phase dominance, absolute durations, or reported speedup. See
+> `containers/README.md`.
 
 ## 2. Cheap latency and reliability fixes on the current structure
 
@@ -50,6 +55,10 @@
 
 ## 6. Verification
 
+> Tasks 6.1–6.7 can be rehearsed in the container test environment before the
+> target-host run; `containers/test/default.sh` already covers the pre-tunnel
+> refusal cases against the current scripts. Task 6.8 is target-host only.
+
 - [ ] 6.1 Arm a handoff while a browser session is running and confirm it succeeds and the session is uninterrupted
 - [ ] 6.2 Revoke the handoff and confirm Chromium, the display, and the authenticated profile survive
 - [ ] 6.3 Send a message immediately after revocation without restarting the browser
@@ -57,7 +66,12 @@
 - [ ] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
 - [ ] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
 - [ ] 6.7 Confirm the run log contains phase timings and no URL, route token, or credential
-- [ ] 6.8 Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
+- [ ] 6.8 **TARGET HOST ONLY** Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
+
+## 6a. Findings surfaced by the container test environment
+
+- [ ] 6a.1 The CDP "already running" guard in `start_line_oa_chromium.sh` sits *behind* display setup, so a second start with no `DISPLAY` fails at Xvfb ("could not start private Xvfb display :99") instead of reporting that a session is already running. The safety property holds, but the diagnostic is misleading. Move the session check ahead of display setup — it is cheaper and more meaningful, and attach mode makes it the first thing that should run.
+- [ ] 6a.2 Chromium writes a `SingletonLock` into the profile recording the hostname that holds it. A hard-killed Chromium leaves the lock behind, and a later start refuses the profile as in use "on another computer" whenever the hostname differs. Session shutdown should clear a stale lock it owns, and startup should report this condition distinctly rather than as a generic launch failure.
 
 ## 7. Handoff to the docs change
 

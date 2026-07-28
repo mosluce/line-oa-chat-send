@@ -12,7 +12,7 @@
 - [ ] 2.3 Report a distinct verdict for "environment usable, LINE session absent or expired" that is not an environment failure
 - [ ] 2.4 Print concrete remediation per failing check, invoking no `sudo` and no system package manager, and never suggesting a widened network binding
 - [ ] 2.5 Exit zero only when the environment can perform a message send
-- [ ] 2.6 Verify against a healthy environment, a missing-runtime environment, a missing-handoff-dependency environment, and an unauthenticated-profile environment
+- [ ] 2.6 Verify against a healthy environment, a missing-runtime environment, a missing-handoff-dependency environment, and an unauthenticated-profile environment. These four are provided by `add-container-test-env` as the `full`, `no-runtime`, `no-handoff-deps`, and `unauth-profile` variants; run via `containers/run.sh <variant>` and add the verdict assertions to `containers/test/default.sh`
 
 ## 3. Populate references/
 
