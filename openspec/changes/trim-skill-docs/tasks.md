@@ -13,6 +13,9 @@
 - [ ] 2.4 Print concrete remediation per failing check, invoking no `sudo` and no system package manager, and never suggesting a widened network binding
 - [ ] 2.5 Exit zero only when the environment can perform a message send
 - [ ] 2.6 Verify against a healthy environment, a missing-runtime environment, a missing-handoff-dependency environment, and an unauthenticated-profile environment. These four are provided by `add-container-test-env` as the `full`, `no-runtime`, `no-handoff-deps`, and `unauth-profile` variants; run via `containers/run.sh <variant>` and add the verdict assertions to `containers/test/default.sh`
+- [ ] 2.7 Confirm the full variant yields a single "environment usable" verdict with exit zero (moved from `add-container-test-env`, which could not run it before `doctor.sh` existed)
+- [ ] 2.8 Confirm the unauthenticated-profile variant yields "authentication required" as a verdict distinct from a broken environment, with the dependency checks all passing (moved from `add-container-test-env`)
+- [ ] 2.9 Confirm no remediation message emitted by any variant suggests widening a network binding or exposing CDP, VNC, or the profile (moved from `add-container-test-env`)
 
 ## 3. Populate references/
 

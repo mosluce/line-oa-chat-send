@@ -32,18 +32,25 @@
 
 ## 5. Prove the variants drive real verdicts
 
-- [ ] 5.1 Run the preflight in the full variant and confirm every component reports usable
-- [ ] 5.2 Run it in the missing-runtime variant and confirm it names the runtime with its documented remediation
-- [ ] 5.3 Run it in the missing-handoff-dependency variant and confirm it names the exact missing commands and prints the operator install instructions without invoking a package manager
-- [ ] 5.4 Run it in the unauthenticated-profile variant and confirm it reports authentication required, not a broken environment
-- [ ] 5.5 Confirm no remediation message suggests widening a network binding
+> Verdict-level checks moved to `trim-skill-docs` task group 2, because they
+> need `scripts/doctor.sh`, which that change creates: a single usable /
+> not-usable summary, "authentication required" as a verdict distinct from a
+> broken environment, and "no remediation widens a network binding". What
+> remains here is proving each variant actually presents the environment state
+> those checks will consume, against the dependency detection that exists today.
+> All four are asserted in `containers/test/default.sh`.
+
+- [x] 5.1 Confirm the full variant presents every dependency: Xvfb, x11vnc, websockify, noVNC assets, Caddy, cloudflared, Chromium, and an importable Playwright runtime
+- [x] 5.2 Confirm the missing-runtime variant makes `run_line_oa_chat.sh` report that no Python runtime with Playwright was found
+- [x] 5.3 Confirm the missing-handoff-dependency variant makes the handoff script name the exact missing commands and print operator install instructions without invoking a package manager
+- [x] 5.4 Confirm the unauthenticated-profile variant presents an initialized, previously-used, session-free profile
 
 ## 6. Scope the container's authority
 
 - [x] 6.1 Document that container results are authoritative for behavior, refusal and error paths, dependency detection, and arm/revoke lifecycle
 - [x] 6.2 Document that they are not authoritative for phase dominance, absolute durations, or reported speedup
 - [x] 6.3 Record the distortions that motivate the limit: virtualized CPU and filesystem, architecture difference from the target, throwaway rather than real profile, and tunnel egress path
-- [ ] 6.4 Resolve the open question on the target host's architecture and distribution, and record how far it diverges from the container
+- [x] 6.4 Resolve the open question on the target host's architecture and distribution, and record how far it diverges from the container (target is arm64 Debian: architecture and distribution match, so no silicon difference and no emulation; virtualization, throwaway profile, egress path, and seccomp=unconfined still differ)
 
 ## 7. Wire into the dependent changes
 

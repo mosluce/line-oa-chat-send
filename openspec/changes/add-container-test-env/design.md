@@ -77,4 +77,4 @@ Writing this as a requirement rather than a README note is deliberate — the nu
 
 ## Open Questions
 
-- What is the target host's architecture and distribution? If it is x86_64, container results and target results differ in silicon as well as in virtualization, which further narrows what the container can be used to conclude.
+- ~~What is the target host's architecture and distribution?~~ **Resolved: arm64 Debian.** The container matches the target in both, so there is no silicon difference and no emulation on either side, and one of the anticipated distortions does not apply. The remaining divergences are the virtualized CPU and filesystem, the throwaway profile instead of a real one, the workstation egress path, and `seccomp=unconfined`. Both startup poles remain distorted by different and unpredictable amounts, so the limit on latency authority stands — matching architecture narrows the gap without closing it. Recorded in `containers/README.md`.

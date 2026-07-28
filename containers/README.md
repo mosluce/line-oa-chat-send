@@ -19,12 +19,32 @@ for same-host before-and-after comparison. They are **not** an answer to which
 phase dominates handoff startup. Both poles are distorted here, in the same
 direction but by different and unpredictable amounts:
 
-- **Chromium** is slowed by the VM's CPU allocation and filesystem layer, runs
-  on different silicon from an x86_64 target, and is simultaneously *sped up* by
-  using a throwaway profile instead of a real one.
+- **Chromium** is slowed by the VM's CPU allocation and filesystem layer, and is
+  simultaneously *sped up* by using a throwaway profile instead of a real one.
 - **Tunnel registration** is slowed because Quick Tunnels prefer QUIC over UDP,
   which a desktop VM's NAT can degrade into an HTTP/2 fallback, and because
   egress goes through a workstation network rather than a datacenter link.
+
+## Distance from the target host
+
+The target is **arm64 Debian**, so the container matches it in architecture and
+distribution. Chromium, the handoff dependencies, and the Playwright runtime are
+the same packages built for the same instruction set — there is no silicon
+difference and no emulation on either side.
+
+What still differs, and why timing conclusions stay out of scope:
+
+| Differs | Effect |
+| --- | --- |
+| Virtualized CPU and filesystem (Docker Desktop VM) | Inflates Chromium cold start |
+| Throwaway profile instead of a real authenticated one | Deflates Chromium cold start |
+| Egress via a workstation network, QUIC through the VM's NAT | Inflates tunnel registration |
+| `seccomp=unconfined`, absent on the target | Changes sandbox setup cost |
+
+Both startup poles are still distorted, in the same direction but by different
+and unpredictable amounts — and the ratio between them is the entire question
+`speed-up-login-handoff` needs answered. Matching architecture narrows the gap;
+it does not close it.
 
 Two further divergences from a real host, both introduced by the container and
 neither present on the target:
