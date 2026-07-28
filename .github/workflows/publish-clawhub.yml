@@ -18,4 +18,4 @@ jobs:
       dry_run: false
       tags: latest
     secrets:
-      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+      clawhub_token: ${{ secrets.CLAW_HUB_TOKEN }}
