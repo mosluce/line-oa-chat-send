@@ -4,6 +4,8 @@ A reusable, safety-first CLI helper for sending messages through an already auth
 
 The command attaches to an existing local Chromium DevTools (CDP) endpoint. It does **not** start a second browser, log in to LINE, or collect credentials.
 
+> **Optional login handoff — high-risk capability:** If a user explicitly asks to complete LINE login or reauthentication through a remote GUI, this repository also provides `scripts/start_line_oa_vnc_handoff.sh`. It creates a temporary Cloudflare noVNC URL that grants its holder interactive control of the browser. It is not used for ordinary messaging, browsing, or autonomous actions. The script requires the explicit `LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login` scope, defaults to a 15-minute TTL, keeps VNC and CDP loopback-only, and must be stopped immediately when login ends.
+
 ## What it does
 
 - Searches for a chat recipient and refuses ambiguous matches.
@@ -33,6 +35,18 @@ export LINE_OA_PYTHON="$HOME/.local/share/line-oa-chat-runtime/venv/bin/python"
 ```
 
 The path above is an example only. The setup script never creates or accesses a browser profile, never opens a login flow, and never handles credentials. If CDP is unavailable, start one headed Chromium with a private profile and loopback-only CDP endpoint, then have the user log in through a protected interactive GUI. Do not start a second browser against an existing profile.
+
+## Login / reauthentication handoff
+
+Use this only after the user explicitly requests an interactive LINE login or reauthentication session. It is a login-only capability; do not use it to send messages or for unrelated browser control.
+
+```bash
+export LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login
+export LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=900  # optional; allowed range 60–3600
+bash scripts/start_line_oa_vnc_handoff.sh
+```
+
+The printed URL is a bearer secret. Share it only with that user in a private channel, do not log or reuse it, and stop the process immediately after they finish login. TTL expiry is a backstop, not a replacement for prompt revocation.
 
 ## Usage
 
