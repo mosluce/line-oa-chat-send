@@ -1,6 +1,6 @@
 ---
 name: line-oa-chat-send
-description: Send and verify a LINE Official Account Chat message through an already authenticated persistent Chromium session.
+description: Send explicitly authorized LINE Official Account Chat messages through a persistent Chromium session; user-operated LINE login or reauthentication may use a temporary remote noVNC handoff that grants interactive browser control.
 ---
 
 # LINE OA Chat: send a message
@@ -9,13 +9,24 @@ description: Send and verify a LINE Official Account Chat message through an alr
 A user provides or has already opened a LINE OA Chat URL and asks to send a specific message to a named chat recipient.
 
 ## Prerequisites
-- The persistent Chromium profile is already authenticated to LINE OA by the user.
+- The persistent Chromium profile is already authenticated to LINE by the user.
 - Chromium is available via its local CDP endpoint (normally `http://127.0.0.1:9222`).
 - The user has explicitly authorized the outgoing message. Do not infer a message other than an unambiguous test message.
 
+## Security boundary
+- Normal message work uses local CDP only. It does not expose a browser, CDP, VNC, screenshots, cookies, or profile data to the network.
+- The optional noVNC handoff is **only** for a user to complete LINE login or reauthentication. It grants whoever holds its URL interactive control of the browser, so treat the URL as a high-risk bearer secret—not as a general browsing or support channel.
+- Start a handoff only after the user explicitly requests this login/reauthentication route. It has a default 15-minute TTL (configurable only from 60 to 3600 seconds), must be shared only in a direct private channel, and must be revoked immediately after login. Do not use it to send messages, browse unrelated sites, or perform autonomous actions.
+
 ## Authentication and session setup
 1. Run Chromium with a dedicated persistent `--user-data-dir` owned only by the automation service. Do not use an ephemeral browser profile; the user’s LINE OA session and cookies must survive later message runs.
-2. Provide the user with a temporary, protected interactive browser session. Run `bash scripts/start_line_oa_vnc_handoff.sh` when no authenticated profile exists. It starts headed Chromium, loopback-only VNC/noVNC, a high-entropy private Caddy path, and a temporary Cloudflare Quick Tunnel, then emits one HTTPS noVNC URL. Before sharing it, verify the public URL returns a non-empty HTTP 200 page containing `noVNC`; when available, open it in the browser tool and confirm the title is `noVNC`, not an empty page. If either check fails, revoke the failed process, correct the local Caddy/noVNC route, and generate a fresh bearer URL—never reuse the failed URL. Share only the verified bearer URL with the intended user in the DM; never log, commit, or reuse it. Raw VNC `5900` and CDP remain loopback-only. Before launching, ensure `LINE_OA_SEND_CHAT_XVFB_DISPLAY` is unused; if the default `:99` is already active, select another private local display (for example `:100`) for that invocation rather than touching the existing display. The user directly clicks, types, pastes, and scrolls in noVNC.
+2. Provide the user with a temporary protected interactive browser session **only after they explicitly request login or reauthentication through it**. Start it with:
+   ```bash
+   export LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login
+   export LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=900  # 60–3600; default 900
+   bash scripts/start_line_oa_vnc_handoff.sh
+   ```
+   It starts headed Chromium, loopback-only VNC/noVNC, a high-entropy private Caddy path, and a temporary Cloudflare Quick Tunnel, then emits one HTTPS noVNC URL. The holder of that URL can interactively control the browser: share it only with the intended user in a direct private channel; never log, commit, reuse, or relay it. Before sharing it, verify the public URL returns a non-empty HTTP 200 page containing `noVNC`; when available, confirm the title is `noVNC`, not an empty page. If either check fails, revoke the process, correct the local Caddy/noVNC route, and generate a fresh URL. Raw VNC and CDP remain loopback-only. When the user reports login completion, terminate the handoff immediately; the TTL is only a safety backstop. Before launching, ensure `LINE_OA_SEND_CHAT_XVFB_DISPLAY` is unused; if the default `:99` is already active, select another private local display (for example `:100`) rather than touching the existing display.
 3. The user completes LINE authentication themselves in that browser session, including password, QR confirmation, MFA, OTP, security prompts, and recovery flows. Do not request, read, type, store, relay, or log any credentials or verification codes.
 4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
 5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
