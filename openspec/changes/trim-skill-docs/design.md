@@ -93,4 +93,4 @@ Both describe the same command surface. `README.md` addresses a human evaluating
 
 ## Open Questions
 
-- Does anything consuming the published ClawHub skill depend on the current `SKILL.md` section headings? If so, the restructure needs a compatibility note in the release.
+- ~~Does anything consuming the published ClawHub skill depend on the current `SKILL.md` section headings?~~ **Resolved: no.** The workflow publishes the whole tree with `skill publish .`, and the only structured fields are the frontmatter `name` and `description`, both unchanged. Nothing in the repository links to a `SKILL.md` heading anchor, and headings are not a machine-readable contract. No release compatibility note is needed.

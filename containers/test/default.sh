@@ -164,6 +164,50 @@ check 'no-handoff-deps prints operator install instructions, invoking no sudo' b
 check 'unauth-profile has an initialized but session-free profile' bash "$run" unauth-profile \
   bash -lc '[ -e /opt/data/chromium/Default ] || { echo "profile not initialized"; exit 1; }'
 
+printf '\n== environment preflight (doctor.sh) ==\n'
+# Exit codes: 0 usable and authenticated, 1 blocked, 3 usable but not logged in.
+# Exit 0 is unreachable in a credential-free container by design; the target
+# host covers it.
+check 'full: no blockers, verdict is auth-required (exit 3)' bash -c '
+  out="$(bash '"$run"' full bash scripts/doctor.sh 2>&1)"; code=$?
+  [ "$code" = 3 ] || { echo "exit=$code"; echo "$out" | tail -3; exit 1; }
+  grep -q "environment usable; LINE authentication required" <<<"$out" || exit 1
+  grep -q "NOT usable" <<<"$out" && exit 1
+  exit 0'
+check 'full: a running session is still reported unauthenticated' bash -c '
+  out="$(bash '"$run"' full bash -lc "bash scripts/start_line_oa_chromium.sh >/dev/null 2>&1; bash scripts/doctor.sh" 2>&1)"; code=$?
+  [ "$code" = 3 ] || { echo "exit=$code"; exit 1; }
+  grep -q "CDP endpoint responds" <<<"$out" || exit 1
+  grep -q "LINE authentication is required" <<<"$out" || exit 1
+  grep -q "security checkpoint, not an installation failure" <<<"$out" || exit 1
+  exit 0'
+check 'unauth-profile: dependency checks pass, verdict is auth-required' bash -c '
+  out="$(bash '"$run"' unauth-profile bash scripts/doctor.sh 2>&1)"; code=$?
+  [ "$code" = 3 ] || { echo "exit=$code"; exit 1; }
+  grep -q "display, VNC, websockify, noVNC assets" <<<"$out" || exit 1
+  grep -q "environment usable; LINE authentication required" <<<"$out" || exit 1
+  exit 0'
+check 'no-runtime: blocked on the runtime (exit 1)' bash -c '
+  out="$(bash '"$run"' no-runtime bash scripts/doctor.sh 2>&1)"; code=$?
+  [ "$code" = 1 ] || { echo "exit=$code"; exit 1; }
+  grep -q "no Python runtime with Playwright" <<<"$out" || exit 1
+  grep -q "setup_line_oa_runtime.sh" <<<"$out" || exit 1
+  exit 0'
+check 'no-handoff-deps: blocked on session dependencies (exit 1)' bash -c '
+  out="$(bash '"$run"' no-handoff-deps bash scripts/doctor.sh 2>&1)"; code=$?
+  [ "$code" = 1 ] || { echo "exit=$code"; exit 1; }
+  grep -q "missing: Xvfb x11vnc websockify caddy" <<<"$out" || exit 1
+  grep -q "only the login handoff is unavailable" <<<"$out" || exit 1
+  exit 0'
+check 'no remediation widens a binding or invokes sudo' bash -c '
+  for v in full no-runtime no-handoff-deps unauth-profile; do
+    out="$(bash '"$run"' $v bash scripts/doctor.sh 2>&1 || true)"
+    grep -qE "0\.0\.0\.0|--remote-debugging-address=[^1]|listen_address|expose .*(CDP|VNC|profile)" <<<"$out" \
+      && { echo "$v suggests widening a binding"; exit 1; }
+    grep -qE "^[[:space:]]*(→ )?sudo " <<<"$out" && { echo "$v invokes sudo"; exit 1; }
+  done
+  exit 0'
+
 printf '\n== summary ==\n'
 printf '  %d passed, %d failed\n\n' "$pass" "$fail"
 (( fail == 0 ))
