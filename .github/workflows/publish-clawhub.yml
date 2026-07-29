@@ -14,7 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out release tag
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        # Pinned by commit SHA rather than tag: a tag can be moved, a SHA cannot.
+        # v4.1.1 ran on Node 20, which GitHub now forces onto Node 24 and warns
+        # about; v7 targets node24 natively.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Publish root skill
         env:
