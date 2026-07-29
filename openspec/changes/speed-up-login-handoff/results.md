@@ -80,9 +80,78 @@ send immediately after — with no restart. Before this change, revoking killed 
 browser the user had just authenticated, so this sequence required a second
 Chromium cold start.
 
+## Task 1.6 — where the time actually goes
+
+Measured on the deployed agent (a chat bot), timestamps decoded from the
+platform's message IDs; script entry from the phase log.
+
+| Mark | Time (UTC) |
+| --- | --- |
+| `T0` request sent | 06:41:41.417 |
+| `T1` script entry | 06:42:00 (log records whole seconds) |
+| `T3` URL delivered | 06:42:17.230 |
+
+| Segment | Duration | Share |
+| --- | --- | --- |
+| Agent, before the script ran | 18.58 s | 52% |
+| Script | ~10.3 s | 29% |
+| Agent, after the script returned | ~6.9 s | 19% |
+| **Request → URL delivered** | **35.81 s** | |
+| User clicks through to an operable canvas | ~5 s | |
+| **Request → operable login** | **~41 s** | |
+
+The script's share is inferred: `T1 → T3` is 17.23s, and `after.md` puts the
+script at 10.04–10.57s, which fits. A 20s grace would have needed ~25s and does
+not fit, which independently confirms the deployment was running the 5s default.
+
+**Agent turns total ~25.5s against ~10.3s of script — 2.5× the thing that was
+optimized.** The premise this change started from, that the script was the
+bottleneck, does not hold.
+
+## Task 6.8 — the overall picture
+
+| Source | Effect | Basis |
+| --- | --- | --- |
+| Grace-window tuning | −14.8 s | Measured, `baseline.md` vs `after.md` |
+| Structural change (attach mode) | −1.7 s, plus correctness | Removes the second Chromium cold start after revocation. Its real value is that a handoff can be armed while the browser runs and revoking no longer kills the session |
+| Removed agent round-trips | Not directly measured; reasoned below | — |
+
+### Why the removed round-trips were probably the largest of the three
+
+Before this change, `SKILL.md` required the agent to fetch the public URL, check
+it for noVNC content, and on failure revoke, repair the route, and regenerate —
+each step a separate turn. This measurement prices one agent turn at 6.9–18.6s.
+
+The compounding problem is that those turns would have been *spent badly*. The
+URL is not reachable when it is printed, so the agent's first check would fail
+by construction. It would then retry — and agent-driven retries are exactly the
+eager polling that keeps the resolver's negative cache alive, which was measured
+to prevent resolution for over 120 seconds.
+
+So the old design put a human-latency retry loop on top of a failure mode that
+retrying makes worse. The realistic old cost is therefore several turns plus a
+poisoned cache, not one clean verification.
+
+This is reasoning, not measurement: the original flow was never timed, because
+the instrumentation arrived with the change and the old code could not produce a
+phase log. It is recorded as an argument, not a number.
+
+### What this says about where to look next
+
+Optimizing the script further has poor returns. The remaining script budget is
+4.45s tunnel registration (out of scope by decision), 5.00s grace (measured
+floor), and 0.87s DNS + HTTP.
+
+The agent segments are now the dominant cost, and the largest single one is the
+18.58s *before the script runs at all* — reading the skill, deciding, and
+issuing the first tool call. That is a documentation and tool-surface question,
+not a shell-script one. A plausible next step is collapsing preflight, session
+start, and arming into a single command so the agent makes one decision instead
+of three.
+
 ## Not claimed
 
 - No overall speedup for the change as a whole. The pre-change baseline does not
-  exist.
+  exist, and the agent-round-trip saving is argued rather than measured.
 - No claim that a longer grace is worse. Misses landed on longer values, but
   three runs per value is well within chance.
