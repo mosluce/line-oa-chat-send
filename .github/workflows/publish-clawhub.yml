@@ -28,6 +28,7 @@ jobs:
       - name: Publish root skill
         env:
           CLAW_HUB_TOKEN: ${{ secrets.CLAW_HUB_TOKEN }}
+          SKILL_SLUG: line-oa-chat-send
         run: |
           set -euo pipefail
 
@@ -59,7 +60,14 @@ jobs:
           # Publish from a staging copy rather than the repo root. openspec/ is
           # change proposals and specs, .claude/ is local agent tooling; neither
           # is useful to someone installing the skill, and both are large.
-          staging="$(mktemp -d)"
+          #
+          # The staging directory is named after the skill, because the CLI
+          # derives the slug from the folder name when --slug is absent.
+          # Publishing from a bare mktemp -d created a whole new skill named
+          # after the temp directory. --slug below is the real guard; this is
+          # belt and braces.
+          staging="$(mktemp -d)/${SKILL_SLUG}"
+          mkdir -p "$staging"
           rsync -a \
             --exclude '.git/' \
             --exclude 'openspec/' \
@@ -75,12 +83,28 @@ jobs:
           bash scripts/check_doc_links.sh "$staging"
 
           npx --yes clawhub@0.23.1 login --token "$CLAW_HUB_TOKEN"
-          npx --yes clawhub@0.23.1 skill publish "$staging" \
+
+          # --slug and --name are explicit so the published identity never
+          # depends on where the files happen to sit on disk.
+          out="$(npx --yes clawhub@0.23.1 skill publish "$staging" \
             --json \
+            --slug "$SKILL_SLUG" \
+            --name "$SKILL_SLUG" \
             --version "$version" \
             --changelog "$changelog" \
             --tags latest \
             --source-repo "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA" \
             --source-ref "$GITHUB_REF_NAME" \
-            --source-path .
+            --source-path .)"
+          printf '%s\n' "$out"
+
+          # Confirm where it actually landed. This cannot prevent a mispublish,
+          # but it makes one loud instead of silent -- v0.1.5 went to a skill
+          # named after a temp directory and nothing in the run said so.
+          published_slug="$(printf '%s' "$out" | jq -r '.slug')"
+          if [ "$published_slug" != "$SKILL_SLUG" ]; then
+            printf 'ERROR: published to slug %s, expected %s\n' "$published_slug" "$SKILL_SLUG" >&2
+            exit 1
+          fi
+          printf 'Published %s@%s\n' "$published_slug" "$version"
