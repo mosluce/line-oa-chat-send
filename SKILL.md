@@ -6,154 +6,121 @@ description: Send explicitly authorized LINE Official Account Chat messages thro
 # LINE OA Chat: send a message
 
 ## Use when
-A user provides or has already opened a LINE OA Chat URL and asks to send a specific message to a named chat recipient.
+
+A user provides or has already opened a LINE OA Chat URL and asks to send a
+specific message to a named chat recipient.
 
 ## Prerequisites
+
 - The persistent Chromium profile is already authenticated to LINE by the user.
-- Chromium is available via its local CDP endpoint (normally `http://127.0.0.1:9222`).
-- The user has explicitly authorized the outgoing message. Do not infer a message other than an unambiguous test message.
+- A browser session is running with its loopback CDP endpoint reachable.
+- The user has explicitly authorized the outgoing message. Do not infer a
+  message other than an unambiguous test message.
 
 ## Security boundary
-- Normal message work uses local CDP only. It does not expose a browser, CDP, VNC, screenshots, cookies, or profile data to the network.
-- The optional noVNC handoff is **only** for a user to complete LINE login or reauthentication. It grants whoever holds its URL interactive control of the browser, so treat the URL as a high-risk bearer secret—not as a general browsing or support channel.
-- Start a handoff only after the user explicitly requests this login/reauthentication route. It has a default 15-minute TTL (configurable only from 60 to 3600 seconds), must be shared only in a direct private channel, and must be revoked immediately after login. Do not use it to send messages, browse unrelated sites, or perform autonomous actions.
 
-## Authentication and session setup
-1. Run Chromium with a dedicated persistent `--user-data-dir` owned only by the automation service. Do not use an ephemeral browser profile; the user’s LINE OA session and cookies must survive later message runs.
-2. Provide the user with a temporary protected interactive browser session **only after they explicitly request login or reauthentication through it**. Start it with:
-   ```bash
-   export LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login
-   export LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=900  # 60–3600; default 900
-   bash scripts/start_line_oa_vnc_handoff.sh
-   ```
-   It starts headed Chromium, loopback-only VNC/noVNC, a high-entropy private Caddy path, and a temporary Cloudflare Quick Tunnel, then emits one HTTPS noVNC URL. The holder of that URL can interactively control the browser: share it only with the intended user in a direct private channel; never log, commit, reuse, or relay it. Before sharing it, verify the public URL returns a non-empty HTTP 200 page containing `noVNC`; when available, confirm the title is `noVNC`, not an empty page. If either check fails, revoke the process, correct the local Caddy/noVNC route, and generate a fresh URL. Raw VNC and CDP remain loopback-only. When the user reports login completion, terminate the handoff immediately; the TTL is only a safety backstop. Before launching, ensure `LINE_OA_SEND_CHAT_XVFB_DISPLAY` is unused; if the default `:99` is already active, select another private local display (for example `:100`) rather than touching the existing display.
-3. The user completes LINE authentication themselves in that browser session, including password, QR confirmation, MFA, OTP, security prompts, and recovery flows. Do not request, read, type, store, relay, or log any credentials or verification codes.
-4. After the user says login is complete, inspect the existing browser page. Authentication is ready only when a `https://chat.line.biz/` page loads the authenticated chat UI rather than a sign-in, expired-session, or access-denied screen.
-5. Reuse the same persistent profile for subsequent sends. If LINE expires or revokes the session, pause the task and ask the user to reauthenticate through the protected interactive browser; then repeat the authenticated-UI check.
+- Normal message work uses local CDP only. It does not expose a browser, CDP,
+  VNC, screenshots, cookies, or profile data to the network.
+- The optional noVNC handoff is **only** for a user to complete LINE login or
+  reauthentication. It grants whoever holds its URL interactive control of the
+  browser, so treat the URL as a high-risk bearer secret—not as a general
+  browsing or support channel.
+- Start a handoff only after the user explicitly requests this
+  login/reauthentication route. It has a default 15-minute TTL (configurable only
+  from 60 to 3600 seconds), must be shared only in a direct private channel, and
+  must be revoked immediately after login. Do not use it to send messages, browse
+  unrelated sites, or perform autonomous actions.
+- Never request, handle, record, or transmit LINE passwords, OTPs, or other
+  credentials. The user completes every authentication step themselves.
+- Never log, commit, reuse, or relay a handoff URL.
 
-## Starting Chromium and CDP
-When the CDP endpoint is unavailable, start **one** headed Chromium. Its persistent profile path is selected by `LINE_OA_SEND_CHAT_CHROMIUM_PROFILE`, falling back to `/opt/data/chromium`; the startup helper creates that directory with permission mode `700` when it is absent.
+Revoking a handoff removes external reachability only; the browser session keeps
+running. That narrows the cost of revoking promptly — it does not narrow what the
+handoff grants while it is armed.
 
-1. Ensure a protected headed display already exists (`DISPLAY` or `--display`). The profile contains retained LINE session data: never commit, copy, inspect, or disclose it. A newly created fallback profile is not logged in, so the user must authenticate through the protected GUI before any send.
-2. Select the Chromium executable explicitly with `LINE_OA_CHROMIUM` / `--chromium`, or let the startup script discover a system Chromium command.
-3. Start the foreground process through a supervisor or tracked background process:
-   ```bash
-   export LINE_OA_SEND_CHAT_CHROMIUM_PROFILE="/private/operator-chosen/chrome-profile"  # optional; default: /opt/data/chromium
-   export LINE_OA_CHROMIUM="/path/to/chromium"  # optional when Chromium is on PATH
-   bash scripts/start_line_oa_chromium.sh
-   ```
-   `--profile-dir` can override the environment-selected profile for one invocation. The script binds CDP only to `127.0.0.1:9222`, refuses to start if that endpoint already responds, and opens `https://chat.line.biz/`. It does not log in or expose VNC/CDP publicly.
-4. Confirm CDP is live before using the send CLI:
-   ```bash
-   curl --max-time 3 -fsS http://127.0.0.1:9222/json/version >/dev/null
-   ```
-   Then inspect the existing LINE OA page. If LINE requires login, QR, MFA, OTP, or a challenge, only the user may resolve it through the protected GUI.
-
-## Shutdown after use
-When the user says the LINE OA work is finished, close Chromium to release server resources while preserving the private persistent profile for later reuse.
-
-1. Confirm no send, dry-run, setup, or user GUI interaction is active. If an unfinished composer draft or another user session may be open, ask before closing.
-2. Identify exactly one operator-owned Chromium root process through its configured local CDP endpoint or service supervisor. Do not rely on a fixed binary path, profile path, PID, or a broad `pkill` pattern.
-3. Send the root process a graceful termination signal (`SIGTERM`) and allow it time to exit. Do not delete, copy, inspect, or modify the persistent browser profile; it contains the retained session.
-4. Verify the local CDP endpoint is unreachable and Chromium browser/renderer processes have exited. A crash-report helper may remain briefly and does not retain the browser session.
-5. If the browser does not exit after the graceful timeout, report the blocker and wait for user direction before using a forced kill. Shut down any protected VNC/noVNC/tunnel components separately only when they exist solely for this browser and are no longer needed.
-
-A later start with the same private persistent profile will usually retain LINE login, but LINE may still expire or revoke the session and require user reauthentication through the protected GUI.
-
-## Environment preflight and safe provisioning
-Before reporting that the environment is unavailable, **the agent must inspect and prepare it itself**. Do not merely ask the operator to install a missing Python package, browser, profile directory, or display when the following safe steps can resolve it.
-
-1. Select a private runtime directory from `LINE_OA_SEND_CHAT_RUNTIME_DIR`, or use `${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send`. This is runtime/cache data only; never place it inside the Chromium profile or Git repository.
-2. If Playwright, its managed Chromium, or the selected runtime is absent, provision all three in one command:
-   ```bash
-   runtime_dir="${LINE_OA_SEND_CHAT_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send}"
-   bash scripts/setup_line_oa_runtime.sh --runtime-dir "$runtime_dir"
-   export LINE_OA_PYTHON="$runtime_dir/venv/bin/python"
-   export LINE_OA_SEND_CHAT_BROWSER_DIR="$runtime_dir/ms-playwright"
-   ```
-   The setup script creates private `700` directories, installs the Python Playwright dependency, and downloads its managed Chromium into the private runtime. It never reads a browser profile or handles LINE credentials. Use `--skip-browser-install` only for a client-only/CDP test that will not launch Chromium.
-3. Run `scripts/start_line_oa_chromium.sh`. It creates the selected profile directory when absent and, if `DISPLAY` is missing, starts a private local `Xvfb` display for the lifetime of its Chromium child. It does **not** expose VNC, noVNC, CDP, or a GUI to the network. A protected GUI-sharing service remains an operator-controlled prerequisite for user login.
-4. If `uv`, `Xvfb`, or a VNC/noVNC handoff dependency is missing, report the exact missing commands and print package-manager instructions for an operator with host package permission. On Debian-family hosts, install the base handoff packages first, then add Cloudflare's signed `cloudflared` apt repository before installing `cloudflared`; it is not assumed to exist in the default Debian repositories. The skill must not invoke `sudo`, `apt-get`, or another system package manager itself. Never weaken network bindings.
-5. After provisioning, health-check CDP and inspect the LINE page. A new profile will require the user to authenticate through the protected GUI; this is a security checkpoint, not an install failure.
-
-Do **not** assume a particular home directory, virtual environment, browser cache, or runtime folder exists. For browser-profile selection specifically, use `LINE_OA_SEND_CHAT_CHROMIUM_PROFILE` or its explicit fallback `/opt/data/chromium` as described above. The runtime requirements are: (1) a Python environment containing the `playwright` package and (2) an already-running, user-authenticated Chromium reachable through a local CDP endpoint. Connecting over CDP does not require Playwright to download or launch another browser.
-
-The portable launcher still honors an explicit `LINE_OA_PYTHON`, then any current Python that imports Playwright, then `uv run --with playwright`. It connects only to an existing CDP browser; it does not log in or accept credentials.
-
-## CLI script
-Use `scripts/run_line_oa_chat.sh` rather than invoking `python scripts/send_line_oa_chat.py` directly. It connects only to an already-running local CDP endpoint; it does not perform login or accept credentials.
+## Quick start
 
 ```bash
-# Safe default: find and open the uniquely matched chat, but do not send.
-bash scripts/run_line_oa_chat.sh \
-  --recipient "<exact recipient>" --message "<message>"
+# 1. Check the environment. Exit 0 = ready; 3 = usable but not logged in; 1 = blocked.
+bash scripts/doctor.sh
 
-# Send only after the user explicitly authorizes this exact recipient and message.
-bash scripts/run_line_oa_chat.sh \
-  --recipient "<exact recipient>" --message "<message>" --send
+# 2. Start the browser session if one is not running.
+#    Owns the display, Chromium, and a loopback-only screen-sharing stack.
+#    Nothing is externally reachable.
+bash scripts/start_line_oa_chromium.sh
+
+# 3. ONLY when the user explicitly asks to log in or re-authenticate.
+#    Prints one URL, already verified reachable, or fails non-zero.
+export LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login
+export LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS=900   # 60-3600, default 900
+bash scripts/start_line_oa_vnc_handoff.sh
+
+# 4. Revoke as soon as the user says login is done. Session keeps running.
+bash scripts/stop_line_oa_vnc_handoff.sh
+
+# 5. Find and open the chat without sending. This is the safe default.
+bash scripts/run_line_oa_chat.sh --recipient "<exact recipient>" --message "<message>"
+
+# 6. Send, only after the user authorized this exact recipient and message.
+bash scripts/run_line_oa_chat.sh --recipient "<exact recipient>" --message "<message>" --send
+
+# 7. Stop the session when the work is finished. The profile is preserved.
+bash scripts/stop_line_oa_chromium.sh
 ```
 
-The script refuses ambiguous recipient results, requires `--send` for the external side effect, and exits non-zero when session/UI verification fails. After sending, it verifies that the composer cleared and the exact text appeared in the active transcript. Do not retry a failed verification until the protected browser is inspected, because LINE may already have accepted the message.
+Provision a Python runtime only if `doctor.sh` reports one missing:
 
-## Procedure
-1. Connect with Playwright's sync API over CDP. Inspect all open pages and select the page whose URL begins with `https://chat.line.biz/`.
-2. Inspect the chat page before acting. Use the sidebar input with `aria-label="搜尋"` / placeholder `搜尋` to search the requested recipient.
-3. Select the result from the chat list, not a same-named account/profile menu item. In this UI the searchable chat's text can be inside a `<mark>` and its clickable parent is an ancestor `<a>`.
-4. Confirm the selected conversation has loaded by checking that the message composer and prior conversation content are visible.
-5. Fill the actual composer inside LINE's custom element using the shadow-DOM-piercing locator `page.locator('textarea-ex').locator('textarea')`, then click `input[type="submit"][value="傳送"]`.
-6. Wait for UI update and verify the exact message appears in the active chat transcript. Report only after this verification succeeds.
-
-## Reference implementation
-```python
-from playwright.sync_api import sync_playwright
-
-recipient = "<exact recipient>"
-message = "<message>"
-with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
-    page = next(pg for ctx in browser.contexts for pg in ctx.pages
-                if pg.url.startswith("https://chat.line.biz/"))
-    search = page.get_by_placeholder("搜尋", exact=True)
-    search.fill(recipient)
-    page.wait_for_timeout(800)
-    chat = page.locator("mark").filter(has_text=recipient).first.locator("xpath=ancestor::a")
-    chat.click()
-    page.locator("textarea-ex").locator("textarea").fill(message)
-    page.locator('input[type="submit"][value="傳送"]').click()
-    page.wait_for_timeout(1200)
-    assert message in page.locator("body").inner_text()
+```bash
+bash scripts/setup_line_oa_runtime.sh --runtime-dir <private-dir> --skip-browser-install
+export LINE_OA_PYTHON=<private-dir>/venv/bin/python
 ```
 
-## UI reference
-See [LINE OA UI selector notes](references/line-oa-ui-selectors.md) for the current DOM patterns and responsive-layout behavior observed in the web client.
+## What the scripts guarantee
 
-## Publishing updates
-When changing this skill in its GitHub repository, use the normal Git/PR lifecycle rather than committing to `main` directly.
+You do not need to re-check these by hand.
 
-### Making the repository public
-Use [the public repository checklist](references/public-repository-checklist.md) for the full audit, settings, and verification sequence.
+- **The handoff prints a URL only after verifying it.** It fetches the public URL
+  and requires HTTP 200 with noVNC content. On failure it prints no URL, revokes
+  what it started, and exits non-zero naming the phase that failed. Do not
+  construct or share a URL yourself.
+- **Arming refuses** with no session, with stale session state, without the login
+  purpose, with an out-of-range TTL, and when a handoff is already armed.
+- **Nothing is externally reachable between handoffs.** The front end answers 404
+  until a token route is armed.
+- **The send CLI refuses ambiguous recipients**, requires `--send` for the
+  external side effect, and verifies the message landed before reporting success.
+- **Shutdown is scripted.** It revokes any armed handoff first, terminates the
+  recorded process gracefully, and reports rather than force-killing on timeout.
 
-Before changing visibility, audit **all reachable Git history**, not only the current files: old commits and merged PRs remain visible after publication. Scan for credentials, authentication headers, tunnel/share URLs, browser-profile data, and host-specific runtime paths, reporting only commit IDs and pattern categories—not matched secret values. Remove or rewrite genuinely sensitive history before publication.
+## When to stop and ask the user
 
-Apply public-facing settings before changing visibility: remove unused collaboration surfaces, enable automatic deletion of merged branches, and disable unused Actions until a reviewed workflow exists. After changing visibility, verify the repository and README through an unauthenticated request, then enable supported public-repository security controls (secret scanning, push protection, Dependabot). GitHub may automatically enable or reject some settings for public repositories, so read back the resulting state. Treat LICENSE selection as a separate legal decision; do not choose one without the user’s direction.
+- **The recipient search matched more than one chat.** Stop. Ask which
+  conversation to use. Never guess which person receives a message.
+- **Post-send verification failed.** Do **not** retry. LINE may have accepted the
+  message already, so a retry risks sending it twice. Inspect the browser first,
+  then report what you found.
+- **LINE asks for a password, QR confirmation, MFA, OTP, or a security prompt.**
+  Only the user resolves these, through the handoff. Do not read, type, store,
+  relay, or log any credential or verification code.
+- **The session expired or was revoked mid-task.** Pause and ask the user to
+  reauthenticate through the handoff, then re-check before continuing.
+- **`doctor.sh` reports a blocker.** Report the exact missing pieces and its
+  remediation. Do not invoke `sudo` or a package manager, and never weaken a
+  network binding to work around a failure.
+- **The profile is locked by another hostname.** Another Chromium may genuinely
+  hold it. Report it; do not clear the lock.
 
-1. Run `gh auth status` in the same OS user and runtime that will run Git/`gh` commands. A GitHub browser session or CLI login in another shell/user does not authenticate this runtime.
-2. If CLI auth is missing, start the browser/device flow with `gh auth login --hostname github.com --git-protocol https --web`. When the user asks to “just run it and give me the code,” run the flow directly and reply only with the generated one-time device code plus `https://github.com/login/device`; do not add extra explanation. Wait for their authorization, then verify with `gh auth status` before proceeding.
-3. Start from the current `main` branch and create a focused branch such as `docs/update-authentication`.
-4. Validate the edited `SKILL.md`, commit the change, and push the branch.
-5. Use GitHub CLI (`gh pr create`) to open a PR that summarizes the change and its verification.
-6. Test the exact remote PR revision before reporting it: obtain `headRefOid` with `gh pr view <number> --json headRefOid`, then check out that SHA in a clean worktree and run Python compilation, `--help`, and a no-send dry-run against the authenticated LINE UI. If a shallow clone has a restrictive fetch refspec and `gh pr checkout` cannot set tracking for the PR branch, create a local non-tracking branch at the verified `headRefOid` (for example, `git switch -c pr-<number> <sha>`). Do not test an unverified local copy instead.
-7. Treat documentation-only changes (including README updates) as repository changes too: branch, validate, push, open a PR, and leave it unmerged for review.
-8. Merge only after the user explicitly approves it. A concise `merge` instruction is sufficient authorization; use a squash merge and delete the feature branch, then verify the PR state and remote branch deletion with `gh`.
+## Reference material
 
-## Pitfalls
-- `get_by_text(recipient, exact=True)` may target the signed-in account menu instead of the chat result when names collide.
-- On a narrow layout the matching chat label may have no bounding box because the sidebar hides text, while its containing chat-list `<a>` is still clickable. Locate the anchor from the matching `<mark>` instead of treating a hidden label as a failed search.
-- Playwright placeholder matching is substring-based by default. Use `page.get_by_placeholder("搜尋", exact=True)` so the chat-list search does not also match LINE's unrelated `輸入搜尋內容` field.
-- `get_by_placeholder(...)` can match both the custom `textarea-ex` host and its internal textarea. Use `textarea-ex >> textarea` / chained locators so Playwright targets the true editable element.
-- A successful click alone is not sufficient; always verify the exact outgoing text in the active transcript after submission, preferably in the recent transcript tail rather than via a broad page-wide match.
-- If the recipient search yields more than one distinct chat, stop and ask the user which conversation to use.
-- Never request, handle, record, or transmit LINE passwords, OTPs, or other credentials.
-- A local `curl` success is insufficient for a Cloudflare Quick Tunnel: verify the bearer URL from outside the local listener. If the tunnel page is empty, check that Caddy uses a host-agnostic site address (for example `:6081`) with `bind 127.0.0.1`; `http://127.0.0.1:6081` can reject the public tunnel Host header. Keep multi-line Caddy `handle` blocks structurally formatted, because compact inline blocks may fail Caddy parsing.
-- Never assume VNC `5900` or websockify `6080` are free. Select unused loopback ports for each handoff and configure Caddy to reverse-proxy to the chosen websockify port. Fixed ports can silently attach the handoff to another display and yield a black canvas.
-- For an Xvfb display, invoke `x11vnc` with `-noxrecord -noxfixes -noxdamage`; otherwise noVNC can remain black even while Chromium has a mapped window. Confirm the actual remote canvas visually shows the LINE login window before instructing the user to authenticate.
+Read these when you need depth; they are not needed for a normal send.
+
+| File | Read it when |
+| --- | --- |
+| [references/line-oa-ui-selectors.md](references/line-oa-ui-selectors.md) | The send flow fails to find the search box, the chat, or the composer |
+| [references/handoff-operations.md](references/handoff-operations.md) | Changing the session or handoff scripts, or diagnosing a handoff that will not verify |
+| [references/public-repository-checklist.md](references/public-repository-checklist.md) | Making the repository public |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Changing this repository |
+| [containers/README.md](containers/README.md) | Running the scripts in the Linux test environment |
+
+`scripts/send_line_oa_chat.py` is the only implementation of the send flow. Do
+not write a second one.
