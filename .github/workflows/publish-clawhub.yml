@@ -20,6 +20,10 @@ jobs:
         # v4.1.1 ran on Node 20, which GitHub now forces onto Node 24 and warns
         # about; v7 targets node24 natively.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The annotated tag message becomes the changelog, so the tag object
+          # itself has to be present, not just the commit it points at.
+          fetch-depth: 0
 
       - name: Publish root skill
         env:
@@ -34,10 +38,29 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           printf 'Publishing tag %s as version %s\n' "$GITHUB_REF_NAME" "$version"
 
+          # v0.1.4 published with "No changelog provided" and was not promoted to
+          # Latest, while v0.1.3 carried a changelog and was. The two may not be
+          # causally linked -- promotion could simply be asynchronous -- but a
+          # release should ship its own notes either way, rather than relying on
+          # the registry to infer them from a diff.
+          #
+          # The annotated tag message is already written as release notes, so use
+          # it. Check the object type first: for a lightweight tag %(contents)
+          # falls back to the commit message, which would quietly publish the
+          # last commit subject as the release notes.
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            changelog="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          else
+            changelog=""
+            printf 'WARNING: %s is a lightweight tag; publishing without a changelog.\n' "$GITHUB_REF_NAME" >&2
+            printf 'WARNING: annotate release tags (git tag -a) so the release ships its notes.\n' >&2
+          fi
+
           npx --yes clawhub@0.23.1 login --token "$CLAW_HUB_TOKEN"
           npx --yes clawhub@0.23.1 skill publish . \
             --json \
             --version "$version" \
+            --changelog "$changelog" \
             --tags latest \
             --source-repo "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA" \
