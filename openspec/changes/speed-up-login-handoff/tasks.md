@@ -8,6 +8,9 @@
 - [ ] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
 - [ ] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline. Partly answered in the container: the URL is *not* routable when printed (emitted ~2.8s, resolves only during a later quiet window), and eager probing poisons the resolver's negative cache. What remains: the shortest safe DNS grace window, now the dominant term in arming
 
+> Tasks 1.5–1.7 must run on the target Linux host. Step-by-step procedure:
+> `target-host-runbook.md` in this change directory.
+>
 > Tasks 1.5–1.7 must run on the target Linux host. The container test
 > environment distorts both startup poles unpredictably and is not authoritative
 > for phase dominance, absolute durations, or reported speedup. See

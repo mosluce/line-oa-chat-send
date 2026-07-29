@@ -1,0 +1,23 @@
+# Per-machine Claude Code settings. The shared commands and skills under
+# .claude/ are tracked; this file is personal and stays local.
+.claude/settings.local.json
+
+# Runtime and cache data. These are created outside the repository by default,
+# but a misconfigured LINE_OA_SEND_CHAT_RUNTIME_DIR could land them here, and
+# they may contain phase logs, Caddy configs, and tunnel logs.
+.line-oa-runtime/
+*/ms-playwright/
+**/timing/*.log
+
+# Browser profile data. Never belongs in the repository under any name: it holds
+# the retained LINE session.
+chromium-profile/
+**/SingletonLock
+**/SingletonCookie
+**/SingletonSocket
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
