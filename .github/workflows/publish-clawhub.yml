@@ -108,3 +108,33 @@ jobs:
             exit 1
           fi
           printf 'Published %s@%s\n' "$published_slug" "$version"
+
+          # Publishing alone leaves a version with security status "pending",
+          # and a pending version is never promoted to the `latest` tag. 0.1.4
+          # sat pending for over an hour and installers kept getting 0.1.3;
+          # running this scan on 0.1.6 promoted it within seconds.
+          #
+          # The scan runs server-side against the published artifact
+          # (sourceKind: published), so this triggers ClawHub's own review
+          # rather than uploading a self-assessment.
+          scan="$(npx --yes clawhub@0.23.1 scan \
+            --slug "$SKILL_SLUG" \
+            --version "$version" \
+            --json)"
+
+          # Surface the verdicts so a release is auditable from its run log. The
+          # job does not fail on a "suspicious" component: the aggregate decides
+          # promotion, and 0.1.6 was promoted with skillspector at suspicious
+          # while clawscan and static analysis were clean.
+          printf '%s' "$scan" | jq -r '
+            "scan status: \(.status)",
+            "  clawscan:       \(.report.clawscan.status // "-") / \(.report.clawscan.verdict // "-")",
+            "  staticAnalysis: \(.report.staticAnalysis.status // "-")",
+            "  skillspector:   \(.report.skillspector.status // "-") (\(.report.skillspector.severity // "-"), score \(.report.skillspector.score // "-"))"'
+
+          published_latest="$(npx --yes clawhub@0.23.1 inspect "$SKILL_SLUG" --json | jq -r '.skill.tags.latest')"
+          printf 'latest now resolves to %s\n' "$published_latest"
+          if [ "$published_latest" != "$version" ]; then
+            printf 'WARNING: latest is %s, not the version just published (%s).\n' "$published_latest" "$version" >&2
+            printf 'WARNING: the security review may still be pending; check the scan verdicts above.\n' >&2
+          fi
