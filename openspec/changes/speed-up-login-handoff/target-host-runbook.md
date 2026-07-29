@@ -67,19 +67,30 @@ export RT="${XDG_STATE_HOME:-$HOME/.local/state}/line-oa-chat-send"
 
 ## 2. Measurements — still logged out
 
+Both are driven by one script:
+
+```bash
+bash scripts/measure_handoff.sh \
+  --baseline 3 \
+  --grace-sweep "5 8 12 16 20" --repeats 3 \
+  --out openspec/changes/speed-up-login-handoff/baseline.md
+```
+
+It refuses to run against an authenticated profile, which is what enforces the
+ordering above rather than leaving it to whoever reads this file. It prints a
+markdown summary and, with `--out`, writes it where the results belong.
+
+The sections below explain what it produces and how to read it.
+
 ### Task 1.5 — baseline
 
 ```bash
-for i in 1 2 3; do
-  bash scripts/start_line_oa_chromium.sh
-  LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login bash scripts/start_line_oa_vnc_handoff.sh
-  bash scripts/stop_line_oa_vnc_handoff.sh
-  bash scripts/stop_line_oa_chromium.sh
-done
-
-cat "$RT"/timing/session-*.log
-cat "$RT"/timing/handoff-*.log
+bash scripts/measure_handoff.sh --baseline 3
 ```
+
+Per-run phases plus min/mean/max for session total, `tunnel_url`,
+`dns_resolved`, `url_verified`, and handoff total. Raw phase logs stay in
+`"$RT"/timing/`.
 
 Container figures for comparison — **not** a target for the host to match, only a
 shape to recognise:
@@ -102,40 +113,44 @@ eager probing holds itself in failure. Each arm gets a **new hostname**, which i
 why a sweep works at all — runs cannot poison each other.
 
 ```bash
-bash scripts/start_line_oa_chromium.sh
-
-for g in 5 8 12 16 20; do
-  for i in 1 2 3; do
-    LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login \
-    LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE=$g \
-      bash scripts/start_line_oa_vnc_handoff.sh >/tmp/arm-$g-$i.log 2>&1
-    echo "grace=$g run=$i :: $(grep -E 'dns_resolved|url_verified|FAILED' /tmp/arm-$g-$i.log | tr '\n' ' ')"
-    bash scripts/stop_line_oa_vnc_handoff.sh --quiet
-    sleep 5
-  done
-done
-
-bash scripts/stop_line_oa_chromium.sh
+bash scripts/measure_handoff.sh --grace-sweep "5 8 12 16 20" --repeats 3
 ```
 
-Read `dns_resolved` against the grace value:
+The column that matters is **lookup wait** — time from the tunnel URL being
+emitted to the hostname resolving, i.e. the grace window plus the lookup itself.
+Comparing raw elapsed-from-entry would be wrong, because that also carries
+tunnel registration time and makes every value look like a miss.
 
 | Observation | Meaning |
 | --- | --- |
-| `dns_resolved` ≈ grace | Resolved on the first query. This grace is sufficient. |
-| `dns_resolved` > grace + 5 | First query missed; backoff recovered it. Already refreshing the negative cache. |
-| `FAILED_dns_resolved` | Too short. |
+| lookup wait within ~1.5s of grace | First lookup hit. This grace is sufficient. |
+| lookup wait meaningfully larger | First lookup missed; backoff recovered it. Already refreshing the negative cache. |
+| `FAILED` | The arm never verified. |
 
-Take the **smallest value that shows "≈ grace" on all three runs**. Anything
-smaller trades a reliable arm for a couple of seconds.
+The script reports the smallest value that hit on every run and prints the line
+to change in `scripts/start_line_oa_vnc_handoff.sh`.
 
-Apply it by changing the default in `scripts/start_line_oa_vnc_handoff.sh`:
+**The cliff is sharp.** Observed in the container while validating the script:
 
-```bash
-verify_grace="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE:-<measured value>}"
-```
+| grace | lookup wait | over grace | result |
+| --- | --- | --- | --- |
+| 3s | — | — | **FAILED** — never verified |
+| 5s | 5.04s | +0.04s | hit |
+| 10s | 10.03s | +0.03s | hit |
+| 20s | 20.03s | +0.03s | hit |
 
-Record the sweep output in this directory as `baseline.md`.
+Going one step too low did not cost two seconds — it cost the whole arm. Once
+the negative cache is poisoned, backoff could not recover inside the deadline.
+Choose the smallest value that hit on **every** run, not the smallest that ever
+hit, and prefer a margin over shaving a second.
+
+Those numbers are container measurements and are **not** a target-host answer —
+the container distorts exactly this kind of timing. They show what a clean
+result looks like, nothing more. The shipped default stays 20s until the target
+host says otherwise.
+
+The script writes its summary to `--out`; put it in this directory as
+`baseline.md`.
 
 ### Task 1.6 — how much sits in agent turns
 
@@ -202,8 +217,8 @@ same session, revoke it, and dry-run again.
 
 ## Checklist
 
-- [ ] 1.5 baseline recorded, 3 runs, `baseline.md`
-- [ ] 1.7 grace sweep recorded; smallest reliable value chosen and applied
+- [ ] 1.5 baseline recorded, 3 runs (`measure_handoff.sh --baseline 3`)
+- [ ] 1.7 grace sweep recorded; smallest value that hit on every run chosen and applied
 - [ ] 1.6 `T0`/`T1`/`T2` recorded once
 - [ ] 2.7 post-change comparison against 1.5
 - [ ] 6.3 dry run succeeds after revocation without a browser restart
@@ -217,7 +232,8 @@ same session, revoke it, and dry-run again.
 | `missing browser-session dependencies: ...` | Install the named packages; the message lists them all at once |
 | `could not start private Xvfb display :99` | Display in use; set `LINE_OA_SEND_CHAT_XVFB_DISPLAY=:100` |
 | `the profile is locked by host '<other>'` | Another Chromium may hold the profile. Verify before removing the lock — this is deliberately not automatic |
-| `FAILED_dns_resolved` | Grace too short, or no outbound DNS |
+| `FAILED_dns_resolved` | Grace too short, or no outbound DNS. Too short fails the whole arm, not just slows it |
+| `this session looks authenticated to LINE` | Measurement guard. Measure before logging in, or measure against a fresh profile |
 | Tunnel URL emitted but never verifies | See `references/handoff-operations.md` |
 
 Nothing prints a URL unless it verified. A non-zero exit means no handoff is
