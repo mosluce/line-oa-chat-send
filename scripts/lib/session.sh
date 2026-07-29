@@ -78,6 +78,31 @@ session_require_live() {
 
 session_clear() { rm -f "$(session_state_path)"; }
 
+# session_looks_authenticated [samples]
+# Whether the running session has a logged-in LINE OA page.
+#
+# Sampled over time rather than read once: a freshly started session opens
+# chat.line.biz and only then redirects to the login screen, so a single
+# instantaneous read can catch the pre-redirect moment and call an
+# unauthenticated browser authenticated. Any login indicator in any sample
+# settles it, so the answer errs toward "not authenticated" -- the safe
+# direction for both callers. doctor.sh uses it to choose a verdict, and
+# measure_handoff.sh uses it to refuse to expose a live account.
+session_looks_authenticated() {
+  local samples="${1:-5}" cdp pages saw_login=0 saw_chat=0 i
+  cdp="$(session_get cdp_url 2>/dev/null || printf 'http://127.0.0.1:9222')"
+  curl --max-time 3 -fsS "${cdp}/json/version" >/dev/null 2>&1 || return 1
+  for (( i = 0; i < samples; i++ )); do
+    pages="$(curl --max-time 5 -fsS "${cdp}/json/list" 2>/dev/null || true)"
+    grep -qE 'account\.line\.biz|/login\?|LINE Business ID' <<<"$pages" && saw_login=1
+    grep -q 'chat\.line\.biz' <<<"$pages" && saw_chat=1
+    (( saw_login )) && return 1
+    (( i + 1 < samples )) && sleep 1
+  done
+  (( saw_chat )) || return 1
+  return 0
+}
+
 handoff_is_armed() {
   local file pid
   file="$(session_handoff_path)"

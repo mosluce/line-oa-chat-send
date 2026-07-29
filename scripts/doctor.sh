@@ -151,21 +151,10 @@ fi
 # things that are already fine.
 printf '\nLINE authentication\n'
 if (( cdp_live )); then
-  # Sampled over a few seconds rather than read once. A freshly started session
-  # opens chat.line.biz and only then redirects to the login screen, so a single
-  # instantaneous read can catch the pre-redirect moment and call an
-  # unauthenticated browser authenticated. Any login indicator in any sample
-  # settles it: the verdict errs toward "log in", which is the safe direction.
-  saw_login=0
-  saw_chat=0
-  for _ in 1 2 3 4 5; do
-    pages="$(curl --max-time 5 -fsS "${cdp_url}/json/list" 2>/dev/null || true)"
-    grep -qE 'account\.line\.biz|/login\?|LINE Business ID' <<<"$pages" && saw_login=1
-    grep -q 'chat\.line\.biz' <<<"$pages" && saw_chat=1
-    (( saw_login )) && break
-    sleep 1
-  done
-  if (( saw_chat && ! saw_login )); then
+  # Shared with measure_handoff.sh, which refuses to run against a logged-in
+  # profile. One detection, one place: writing it twice already produced two
+  # copies of the same redirect race.
+  if session_looks_authenticated; then
     ok 'an authenticated LINE OA Chat page is open'
   else
     auth_required=1

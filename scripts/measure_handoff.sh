@@ -64,16 +64,7 @@ command -v cloudflared >/dev/null 2>&1 || {
 # handoff a dozen or more times and each arm exposes the browser. Against an
 # authenticated profile that is a dozen exposures of a live LINE OA back office.
 # A sentence in a document does not enforce that; this does.
-authenticated_session_present() {
-  local cdp pages
-  cdp="$(session_get cdp_url 2>/dev/null || printf '%s' "$cdp_url_default")"
-  curl --max-time 3 -fsS "${cdp}/json/version" >/dev/null 2>&1 || return 1
-  pages="$(curl --max-time 5 -fsS "${cdp}/json/list" 2>/dev/null || true)"
-  grep -q 'chat\.line\.biz' <<<"$pages" || return 1
-  grep -qE 'account\.line\.biz|/login\?|LINE Business ID' <<<"$pages" && return 1
-  return 0
-}
-if authenticated_session_present; then
+if session_looks_authenticated; then
   cat >&2 <<'EOF'
 ERROR: this session looks authenticated to LINE.
 
@@ -87,6 +78,25 @@ ERROR: this session looks authenticated to LINE.
 
   If you must re-measure on an authenticated host, stop the session, move the
   profile aside, and measure against a fresh one.
+EOF
+  exit 2
+fi
+
+# A session that this script did not start breaks the measurement quietly rather
+# than loudly: start_line_oa_chromium.sh refuses when one is already live, and
+# the baseline loop would then read the *previous* run's phase log and present it
+# as this run's result. Refuse instead of reporting stale numbers.
+if session_is_live || curl --max-time 3 -fsS "${cdp_url_default}/json/version" >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+ERROR: a browser session is already running.
+
+  This script starts and stops its own sessions so each run is measured from a
+  cold start. With one already up, the session it tries to start is refused and
+  the timings would be read from the previous run's log -- wrong numbers that
+  look plausible.
+
+  Stop it first:
+    bash scripts/stop_line_oa_chromium.sh
 EOF
   exit 2
 fi
