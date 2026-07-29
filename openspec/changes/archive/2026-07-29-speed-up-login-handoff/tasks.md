@@ -5,7 +5,7 @@
 - [x] 1.3 Add a public-URL reachability probe that records the interval from tunnel URL emitted to first HTTP 200 containing `noVNC`
 - [x] 1.4 Print a phase summary at the end of the run; assert the summary contains no URL, route token, or credential
 - [x] 1.5 **TARGET HOST ONLY** Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
-- [ ] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
+- [x] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
 - [x] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline. Partly answered in the container: the URL is *not* routable when printed (emitted ~2.8s, resolves only during a later quiet window), and eager probing poisons the resolver's negative cache. What remains: the shortest safe DNS grace window, now the dominant term in arming
 
 > Tasks 1.5–1.7 must run on the target Linux host. Step-by-step procedure:
@@ -69,7 +69,7 @@
 - [x] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
 - [x] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
 - [x] 6.7 Confirm the run log contains phase timings and no URL, route token, or credential
-- [ ] 6.8 **TARGET HOST ONLY** (blocked on 1.6) Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
+- [x] 6.8 **TARGET HOST ONLY** Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
 
 ## 6a. Findings surfaced by the container test environment
 
