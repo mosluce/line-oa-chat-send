@@ -24,7 +24,7 @@
 - [x] 2.4 Remove the duplicated dependency-check loop
 - [x] 2.5 Select the Caddy listener port dynamically instead of hard-coding `:6081`, keeping the host-agnostic site address with `bind 127.0.0.1`
 - [x] 2.6 Stop discarding Caddy output; route it to the run log so a bind failure is reported instead of surfacing as a blank page
-- [ ] 2.7 Re-run the instrumented handoff and compare against the 1.5 baseline
+- [x] 2.7 Re-run the instrumented handoff and compare against the 1.5 baseline — `results.md`: common path 25.2s → 10.3s (−14.8s, 59%)
 
 ## 3. Give the browser session a durable, discoverable lifecycle
 
@@ -69,7 +69,7 @@
 - [x] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
 - [x] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
 - [x] 6.7 Confirm the run log contains phase timings and no URL, route token, or credential
-- [ ] 6.8 **TARGET HOST ONLY** Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
+- [ ] 6.8 **TARGET HOST ONLY** (blocked on 1.6) Record the final end-to-end measurement against the 1.5 and 1.6 baselines and report the actual speedup, including the portion attributable to removed agent round-trips
 
 ## 6a. Findings surfaced by the container test environment
 
