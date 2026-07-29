@@ -3,7 +3,9 @@ name: Publish to ClawHub
 on:
   push:
     tags:
-      - "*"
+      # Only release tags publish. Previously any tag did, which meant a
+      # scratch or annotation tag would push a release to the registry.
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: read
@@ -24,9 +26,18 @@ jobs:
           CLAW_HUB_TOKEN: ${{ secrets.CLAW_HUB_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Without --version the CLI defaults to "next patch", so the published
+          # version is whatever follows the last one -- not what this tag says.
+          # v0.1.4 matched 0.1.4 by coincidence; a v0.2.0 tag would have shipped
+          # as 0.1.5 and diverged silently from then on.
+          version="${GITHUB_REF_NAME#v}"
+          printf 'Publishing tag %s as version %s\n' "$GITHUB_REF_NAME" "$version"
+
           npx --yes clawhub@0.23.1 login --token "$CLAW_HUB_TOKEN"
           npx --yes clawhub@0.23.1 skill publish . \
             --json \
+            --version "$version" \
             --tags latest \
             --source-repo "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA" \
