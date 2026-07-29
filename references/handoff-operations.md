@@ -133,3 +133,34 @@ Two concessions apply to the test environment only, never to a real host:
 namespace creation the zygote needs) and `--shm-size` (Chromium exhausts the
 64MB default). See `containers/README.md`. Neither is a reason to teach the
 scripts a container-only flag.
+
+## Running as root
+
+Chromium refuses to start as root with its sandbox enabled
+(`Running as root without --no-sandbox is not supported`).
+
+The fix is to run unprivileged, under a service identity that owns the profile
+directory. That is how the browser is meant to run anyway.
+
+```bash
+useradd --create-home --uid 1000 lineoa
+chown -R lineoa:lineoa /opt/data/chromium
+su - lineoa -c 'cd <repo> && bash scripts/start_line_oa_chromium.sh'
+```
+
+For deployments that genuinely cannot drop privileges — a pod fixed to root, for
+instance — there is an explicit opt-in:
+
+```bash
+LINE_OA_SEND_CHAT_ALLOW_NO_SANDBOX=1 bash scripts/start_line_oa_chromium.sh
+```
+
+It is opt-in and it warns on every start, because the cost is not theoretical.
+Ordinarily this browser only visits `chat.line.biz`, so a disabled renderer
+sandbox has little to contain. **A login handoff changes that**: it grants
+interactive control, so whoever holds the URL can navigate the browser anywhere,
+and an unsandboxed renderer contains far less of whatever they reach. The same
+browser holds the authenticated LINE session.
+
+If you must run this way, keep handoffs short and treat the URL with more care,
+not less.

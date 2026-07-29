@@ -152,6 +152,29 @@ if [[ -z "$display" ]]; then
 fi
 phase_mark display_ready
 
+# Chromium refuses to run as root with its sandbox enabled. Running unprivileged
+# is the fix; disabling the sandbox is an escape hatch for deployments that
+# cannot, and it is deliberately explicit because the cost is real: a login
+# handoff grants interactive control, so someone holding the URL can navigate
+# this browser anywhere, and an unsandboxed renderer contains far less when they
+# do. That browser also holds the authenticated LINE session.
+sandbox_args=()
+if [[ "${LINE_OA_SEND_CHAT_ALLOW_NO_SANDBOX:-}" == "1" ]]; then
+  sandbox_args=(--no-sandbox)
+  printf 'WARNING: starting Chromium with --no-sandbox (LINE_OA_SEND_CHAT_ALLOW_NO_SANDBOX=1).\n' >&2
+  printf 'WARNING: the renderer sandbox is disabled. Prefer running as an unprivileged user.\n' >&2
+  printf 'WARNING: while a handoff is armed, whoever holds the URL can browse anywhere in this browser.\n' >&2
+elif [[ "$(id -u)" == "0" ]]; then
+  die "Chromium will not run as root with its sandbox enabled.
+  Preferred: run as an unprivileged user that owns the profile directory, e.g.
+    useradd --create-home --uid 1000 lineoa
+    chown -R lineoa:lineoa $profile_dir
+    su - lineoa -c 'cd $PWD && bash scripts/start_line_oa_chromium.sh'
+  If this deployment cannot drop privileges, opt in explicitly:
+    LINE_OA_SEND_CHAT_ALLOW_NO_SANDBOX=1 bash scripts/start_line_oa_chromium.sh
+  That disables the renderer sandbox. See references/handoff-operations.md."
+fi
+
 setsid env DISPLAY="$display" "$chromium_bin" \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="$cdp_port" \
@@ -159,6 +182,7 @@ setsid env DISPLAY="$display" "$chromium_bin" \
   --user-data-dir="$profile_dir" \
   --no-first-run \
   --no-default-browser-check \
+  ${sandbox_args[@]+"${sandbox_args[@]}"} \
   https://chat.line.biz/ >"$runtime_dir/logs/chromium.log" 2>&1 &
 chromium_pid="$!"
 phase_mark chromium_spawned
