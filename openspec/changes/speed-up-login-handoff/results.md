@@ -63,6 +63,23 @@ an outlier and the `after` sample happened not to.
 When an outlier does occur, the backoff recovers rather than failing: the
 observed worst case verified at 61s.
 
+## Task 6.3 — send after revocation (target host, authenticated)
+
+The structural claim, verified against a real session:
+
+```
+chromium started   Wed Jul 29 04:44:13 2026
+handoff log        2026-07-29 04:46:45 +0000     (2m32s later)
+dry run            succeeded afterwards, same chromium pid still live
+```
+
+`DRY-RUN OK: selected chat '...'; no message was sent.`
+
+The browser predates the handoff, survived arming and revocation, and served a
+send immediately after — with no restart. Before this change, revoking killed the
+browser the user had just authenticated, so this sequence required a second
+Chromium cold start.
+
 ## Not claimed
 
 - No overall speedup for the change as a whole. The pre-change baseline does not

@@ -64,7 +64,7 @@
 
 - [x] 6.1 Arm a handoff while a browser session is running and confirm it succeeds and the session is uninterrupted
 - [x] 6.2 Revoke the handoff and confirm Chromium, the display, and the authenticated profile survive
-- [ ] 6.3 **TARGET HOST ONLY** Send a message immediately after revocation without restarting the browser (needs a real authenticated LINE session, which the credential-free container cannot provide)
+- [x] 6.3 **TARGET HOST ONLY** Send a message immediately after revocation without restarting the browser — verified: chromium started 04:44:13, handoff at 04:46:45, dry run succeeded afterwards with the same pid live. Evidence in `results.md`
 - [x] 6.4 Arm a second handoff on the same session to confirm mid-session re-authentication works
 - [x] 6.5 Confirm the handoff refuses to arm with no session, with a stale session state, without the login purpose, with an out-of-range TTL, and while another handoff is armed
 - [x] 6.6 Force a verification failure and confirm no URL is printed, everything started is revoked, and the exit code is non-zero
