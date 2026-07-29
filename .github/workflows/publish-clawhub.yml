@@ -56,8 +56,26 @@ jobs:
             printf 'WARNING: annotate release tags (git tag -a) so the release ships its notes.\n' >&2
           fi
 
+          # Publish from a staging copy rather than the repo root. openspec/ is
+          # change proposals and specs, .claude/ is local agent tooling; neither
+          # is useful to someone installing the skill, and both are large.
+          staging="$(mktemp -d)"
+          rsync -a \
+            --exclude '.git/' \
+            --exclude 'openspec/' \
+            --exclude '.claude/' \
+            ./ "$staging/"
+          printf 'Staged %s files (repo has %s)\n' \
+            "$(find "$staging" -type f | wc -l)" \
+            "$(find . -type f -not -path './.git/*' | wc -l)"
+
+          # Excluding directories is exactly what breaks relative links, so the
+          # staged tree is checked before anything is uploaded. A publish with
+          # dead links is what this repository shipped before v0.1.4.
+          bash scripts/check_doc_links.sh "$staging"
+
           npx --yes clawhub@0.23.1 login --token "$CLAW_HUB_TOKEN"
-          npx --yes clawhub@0.23.1 skill publish . \
+          npx --yes clawhub@0.23.1 skill publish "$staging" \
             --json \
             --version "$version" \
             --changelog "$changelog" \
