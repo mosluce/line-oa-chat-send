@@ -99,12 +99,45 @@ then backs off progressively, and treats DNS resolution as its own phase
 separate from HTTP reachability. The two are different waits with different
 causes, and separating them is what makes the remaining cost legible.
 
-Observed on a successful arm in the container: URL emitted at 2.8s, hostname
-resolved on the first query after the 20s grace, HTTP verified 0.9s later.
-The grace window is therefore the dominant term and is a conservative guess —
-the true propagation floor is unmeasured and somewhere below it. Tuning it down
-is the main remaining latency lever, and it belongs to the target-host
-measurement, because finding the floor means probing near it.
+**Measured on the target host (x86_64 Debian 13, Kubernetes pod).** Three runs
+at each of five grace values, plus three baseline runs at the 20s default:
+
+| grace | first-lookup hits | `url_verified` when it hit |
+| --- | --- | --- |
+| 5s | 3/3 | ~10.7s |
+| 8s | 3/3 | ~13.3s |
+| 12s | 3/3 | ~16.7s |
+| 16s | 2/3 | ~20.5s |
+| 20s | 3/3 sweep, 2/3 baseline | ~25.4s |
+
+Two misses in 18 runs, roughly 11%, and both were large outliers — the lookup
+took 40–60s longer than the grace window rather than slightly longer.
+
+Two conclusions the data supports:
+
+1. **There is no propagation floor above 5s.** 5s, 8s, and 12s each hit on all
+   three runs, so propagation completed inside 5s for at least nine consecutive
+   tunnels.
+2. **A longer grace did not prevent the outliers.** The 20s baseline run that
+   missed waited 60s for its lookup; four times the grace would not have helped.
+
+One conclusion the data does **not** support: that a longer grace is actively
+worse. Misses landed on the two longest values, but with three runs each that is
+well within chance — if misses occur at ~11% independently, seeing none in the
+nine short-value runs happens about a third of the time. The honest reading is
+that misses look independent of the grace window, not that they correlate with
+it.
+
+That is enough to choose. Waiting longer costs about 15s on every fast arm and
+demonstrably does not buy protection on the slow ones:
+
+| grace | common path | expected, including ~11% outliers |
+| --- | --- | --- |
+| 5s | 10.7s | ~15.6s |
+| 20s | 25.4s | ~29.9s |
+
+The default is therefore 5s, with the backoff handling outliers. It does handle
+them: the 16s miss verified at 61s rather than failing.
 
 ### Readiness checks replace liveness checks and fixed sleeps
 

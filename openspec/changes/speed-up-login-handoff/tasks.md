@@ -4,9 +4,9 @@
 - [x] 1.2 Instrument the existing `start_line_oa_vnc_handoff.sh` phases: script entry, Xvfb ready, Chromium spawned, CDP reachable, LINE page present, x11vnc listening, websockify listening, Caddy listening, tunnel URL emitted
 - [x] 1.3 Add a public-URL reachability probe that records the interval from tunnel URL emitted to first HTTP 200 containing `noVNC`
 - [x] 1.4 Print a phase summary at the end of the run; assert the summary contains no URL, route token, or credential
-- [ ] 1.5 **TARGET HOST ONLY** Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
+- [x] 1.5 **TARGET HOST ONLY** Run the instrumented handoff 2–3 times on the Linux host and record the baseline numbers in the change directory
 - [ ] 1.6 **TARGET HOST ONLY** Record one manual end-to-end measurement: agent request time, script entry time, and the moment the noVNC canvas becomes operable, to quantify the portion outside the script
-- [ ] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline. Partly answered in the container: the URL is *not* routable when printed (emitted ~2.8s, resolves only during a later quiet window), and eager probing poisons the resolver's negative cache. What remains: the shortest safe DNS grace window, now the dominant term in arming
+- [x] 1.7 **TARGET HOST ONLY** Answer the design's open questions from the baseline. Partly answered in the container: the URL is *not* routable when printed (emitted ~2.8s, resolves only during a later quiet window), and eager probing poisons the resolver's negative cache. What remains: the shortest safe DNS grace window, now the dominant term in arming
 
 > Tasks 1.5–1.7 must run on the target Linux host. Step-by-step procedure:
 > `target-host-runbook.md` in this change directory.

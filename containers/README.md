@@ -27,24 +27,36 @@ direction but by different and unpredictable amounts:
 
 ## Distance from the target host
 
-The target is **arm64 Debian**, so the container matches it in architecture and
-distribution. Chromium, the handoff dependencies, and the Playwright runtime are
-the same packages built for the same instruction set — there is no silicon
-difference and no emulation on either side.
-
-What still differs, and why timing conclusions stay out of scope:
+The target is **x86_64 Debian 13 (trixie)**, running as a Kubernetes pod. The
+container here is **arm64 Debian 12 (bookworm)** on a Docker Desktop VM. They
+differ in instruction set, distribution release, and virtualization layer.
 
 | Differs | Effect |
 | --- | --- |
-| Virtualized CPU and filesystem (Docker Desktop VM) | Inflates Chromium cold start |
+| arm64 here vs x86_64 there | Different silicon; no basis for comparing absolute times |
+| Debian 12 vs Debian 13 | Different Chromium, Caddy, and cloudflared builds |
+| Docker Desktop VM vs a pod | Different CPU allocation and filesystem layer |
 | Throwaway profile instead of a real authenticated one | Deflates Chromium cold start |
-| Egress via a workstation network, QUIC through the VM's NAT | Inflates tunnel registration |
+| Workstation egress, QUIC through the VM's NAT | Changes tunnel registration and DNS behaviour |
 | `seccomp=unconfined`, absent on the target | Changes sandbox setup cost |
 
-Both startup poles are still distorted, in the same direction but by different
-and unpredictable amounts — and the ratio between them is the entire question
-`speed-up-login-handoff` needs answered. Matching architecture narrows the gap;
-it does not close it.
+Measured, once both sides had run the same script:
+
+| | container | target |
+| --- | --- | --- |
+| session start | 0.53s | 1.63s |
+| `tunnel_url` | 2.79s | 4.62s |
+
+The container was **faster** on both — the opposite of what "a VM inflates
+startup" would predict. That is the point: the direction of the distortion was
+not predictable in advance, which is why this environment is not authoritative
+for latency and why the measurements had to be repeated on the target.
+
+A concrete case: the container found that a 3s grace window failed outright,
+which looked like evidence of a propagation floor. The target sweep showed no
+floor at all — misses are sporadic and independent of how long you wait. The
+container result was one unlucky sample generalized into a rule. It was labelled
+non-authoritative, and that label is why it was re-tested rather than shipped.
 
 Two further divergences from a real host, both introduced by the container and
 neither present on the target:

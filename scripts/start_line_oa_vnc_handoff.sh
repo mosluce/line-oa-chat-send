@@ -22,9 +22,15 @@ handoff_purpose="${LINE_OA_SEND_CHAT_HANDOFF_PURPOSE:-}"
 handoff_ttl_seconds="${LINE_OA_SEND_CHAT_HANDOFF_TTL_SECONDS:-900}"
 verify_timeout="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_TIMEOUT:-180}"
 url_timeout="${LINE_OA_SEND_CHAT_HANDOFF_URL_TIMEOUT:-60}"
-# Quiet window before the first DNS lookup. Probing sooner poisons the
+# Quiet window before the first DNS lookup. Probing immediately poisons the
 # resolver's negative cache and delays verification rather than hurrying it.
-verify_grace="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE:-20}"
+#
+# 5s, measured on the target host. Propagation is usually well under 5s, and the
+# occasional tunnel that takes far longer is not prevented by waiting longer --
+# a 16s and a 20s grace each missed as often as a 5s one. Waiting longer buys
+# nothing on the slow path and costs ~15s on every fast one, so the grace is
+# kept short and the backoff below handles the outliers.
+verify_grace="${LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE:-5}"
 
 phase_init handoff
 phase_mark script_entry

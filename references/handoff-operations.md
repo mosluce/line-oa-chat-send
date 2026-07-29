@@ -80,22 +80,47 @@ This is not a container artifact. systemd-resolved, dnsmasq, and container
 embedded DNS all cache negative answers.
 
 So the handoff waits a quiet grace window (`LINE_OA_SEND_CHAT_HANDOFF_VERIFY_GRACE`,
-default 20s) before its first lookup, then backs off progressively, and records
+default 5s) before its first lookup, then backs off progressively, and records
 DNS resolution as a phase separate from HTTP reachability — they are different
 waits with different causes.
 
-Typical successful arm:
+### There is no propagation floor to clear
+
+The obvious model — propagation takes about N seconds, so wait N — does not
+survive measurement. Target host, three runs at each value plus three baseline
+runs at the 20s default:
+
+| grace | first-lookup hits | `url_verified` when it hit |
+| --- | --- | --- |
+| 5s | 3/3 | ~10.7s |
+| 8s | 3/3 | ~13.3s |
+| 12s | 3/3 | ~16.7s |
+| 16s | 2/3 | ~20.5s |
+| 20s | 3/3 sweep, 2/3 baseline | ~25.4s |
+
+Two misses in 18 runs, ~11%, and both were large outliers: the lookup took
+40–60s longer than the grace, not slightly longer.
+
+So propagation completed inside 5s for at least nine consecutive tunnels, and
+the 20s run that missed waited 60s — four times the grace would not have saved
+it. Waiting longer costs ~15s on every fast arm and does not buy protection on
+the slow ones.
+
+Do not read the misses landing on the two longest values as evidence that longer
+is *worse*. With three runs each that is well within chance. The defensible
+reading is that misses look independent of the grace window.
+
+Hence: a short grace, and a backoff that recovers when an outlier appears. It
+does recover — the 16s miss verified at 61s rather than failing.
+
+Typical successful arm at the 5s default:
 
 ```
-route_armed     0.04s
-tunnel_url      2.79s   URL printed here, and not yet usable
-dns_resolved   22.82s   resolved on the first query after the grace window
-url_verified   23.76s   HTTP succeeded on the first attempt
+route_armed     0.03s
+tunnel_url      4.60s   URL printed here, and not yet usable
+dns_resolved    9.60s   resolved on the first query after the grace window
+url_verified   10.70s   HTTP succeeded on the first attempt
 ```
-
-The grace window dominates and is deliberately conservative. Shortening it means
-probing near the propagation floor, which is exactly what triggers the negative
-cache.
 
 ## A local request is not verification
 
