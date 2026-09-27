@@ -160,7 +160,8 @@ if (( cdp_live )); then
     auth_required=1
     warn 'the environment is usable, but LINE authentication is required'
     fix 'this is a security checkpoint, not an installation failure'
-    fix 'the user completes login themselves through the handoff:'
+    fix 'the user can complete login through the handoff, or opt into Business ID email/password reauthentication in run_line_oa_chat.sh:'
+    fix '  --chat-url https://chat.line.biz/U... --auto-login (credentials in the private process environment)'
     fix 'export LINE_OA_SEND_CHAT_HANDOFF_PURPOSE=line-login'
     fix 'bash scripts/start_line_oa_vnc_handoff.sh'
   fi

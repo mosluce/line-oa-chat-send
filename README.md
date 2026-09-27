@@ -1,10 +1,11 @@
 # line-oa-chat-send
 
-A safety-first CLI for sending messages through an already authenticated
+A safety-first CLI for sending messages through a
 [LINE Official Account Chat](https://chat.line.biz/) browser session.
 
 The send command attaches to a local Chromium DevTools (CDP) endpoint. It does
-not start a browser, log in to LINE, or collect credentials.
+does not start a browser. Optional Business ID reauthentication is available
+only with `--chat-url` and `--auto-login`.
 
 > **Optional login handoff — high-risk capability:** when a user explicitly asks
 > to complete LINE login or reauthentication through a remote GUI,
@@ -34,9 +35,9 @@ not start a browser, log in to LINE, or collect credentials.
 Linux is the supported platform. `containers/` provides a reproducible Linux
 environment for running the scripts from another OS.
 
-> **Authentication:** complete LINE login, password entry, QR confirmation, MFA,
-> OTP, and security prompts yourself in the interactive browser. This project
-> never accepts, stores, or transmits those secrets.
+> **Authentication:** by default, complete LINE login yourself in the interactive
+> browser. An explicit Business ID email/password mode reads credentials from the
+> script's environment. QR, MFA, OTP, SSO and security prompts still require you.
 
 ## Check the environment first
 
@@ -73,11 +74,25 @@ bash scripts/run_line_oa_chat.sh --recipient "Recipient name" --message "Message
 # Send, only after the recipient and exact text have been authorized.
 bash scripts/run_line_oa_chat.sh --recipient "Recipient name" --message "Message text" --send
 
+# Optional: visit this specific OA first; log in only if the session expired.
+# Supply LINE_OA_BUSINESS_EMAIL and LINE_OA_BUSINESS_PASSWORD privately to the
+# process (not on the command line, in Git, or in a chat message).
+bash scripts/run_line_oa_chat.sh --chat-url "https://chat.line.biz/U..." \
+  --recipient "Recipient name" --message "Message text" --auto-login --send
+
 # Stop the session. The persistent profile is preserved.
 bash scripts/stop_line_oa_chromium.sh
 ```
 
 Use `--cdp-url` if the endpoint is not the default. `--help` lists all options.
+`--chat-url` is validated to the exact HTTPS `chat.line.biz/U...` origin/path.
+`--auto-login` requires it and only submits credentials on the HTTPS
+`account.line.biz/login` Business ID page. If credentials are absent, login
+fails, or LINE requests MFA/QR/SSO, **nothing is sent**. Keep the process
+environment private to a trusted account; environment variables can be read by
+the process owner and may be inherited by child processes. Do not place the
+password in Hermes prompts or `~/.hermes/.env`, shell history, CI logs, or this
+repository. Never enable Playwright tracing of the credential flow.
 
 ## Login / reauthentication handoff
 
@@ -117,6 +132,7 @@ probing sooner makes it slower.
   guessing.
 - If the authenticated UI, chat selection, composer, or post-send verification
   fails, the command exits non-zero.
+- Auto-login happens only before chat selection; it never retries a send.
 - Do not retry a failed post-send verification automatically: LINE may have
   accepted the message even if verification did not complete.
 - CDP, VNC, websockify, and the HTTP front end stay on loopback. The front end

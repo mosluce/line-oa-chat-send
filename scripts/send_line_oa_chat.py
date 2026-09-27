@@ -8,9 +8,12 @@ Use --send only after the user has authorized the exact recipient and message.
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import sys
 import time
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 try:
     from playwright.sync_api import Error, Locator, Page, sync_playwright
@@ -35,6 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recipient", required=True, help="Exact LINE OA chat recipient name")
     parser.add_argument("--message", required=True, help="Exact message text to send")
+    parser.add_argument("--chat-url", help="Exact LINE OA chat URL (https://chat.line.biz/U...)")
+    parser.add_argument("--auto-login", action="store_true",
+                        help="Opt in to Business ID email/password reauthentication from environment")
     parser.add_argument(
         "--send",
         action="store_true",
@@ -58,12 +64,59 @@ def parse_args() -> argparse.Namespace:
         parser.error("--message must not be blank")
     if args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
+    if args.auto_login and not args.chat_url:
+        parser.error("--auto-login requires --chat-url")
+    if args.chat_url:
+        try:
+            validate_chat_url(args.chat_url)
+        except ValueError as exc:
+            parser.error(str(exc))
     return args
 
 
-def chat_page(browser) -> Page:
+def validate_chat_url(url: str) -> str:
+    parts = urlsplit(url)
+    if (parts.scheme != "https" or parts.netloc != "chat.line.biz"
+            or not re.fullmatch(r"/U[0-9A-Za-z]+", parts.path)
+            or parts.query or parts.fragment):
+        raise ValueError("--chat-url must be an HTTPS chat.line.biz/U... URL without query or fragment")
+    return url
+
+
+def ensure_chat_auth(page: Page, chat_url: str, auto_login: bool, timeout_ms: int) -> None:
+    """Visit the exact account; use credentials only on LINE's Business ID login page."""
+    page.goto(validate_chat_url(chat_url), wait_until="domcontentloaded", timeout=timeout_ms)
+    if page.url.startswith("https://chat.line.biz/"):
+        return
+    if not auto_login:
+        raise RuntimeError("LINE reauthentication required; use the user-operated login handoff")
+    login = urlsplit(page.url)
+    if login.scheme != "https" or login.netloc != "account.line.biz" or login.path != "/login":
+        raise RuntimeError("unexpected authentication destination; credentials were not used")
+    email = os.environ.get("LINE_OA_BUSINESS_EMAIL", "")
+    password = os.environ.get("LINE_OA_BUSINESS_PASSWORD", "")
+    if not email or not password:
+        raise RuntimeError("Business ID credentials unavailable; set LINE_OA_BUSINESS_EMAIL and LINE_OA_BUSINESS_PASSWORD privately")
+    # This path supports Business ID email/password only, not LINE-account or SSO login.
+    try:
+        page.get_by_role("button", name="Email address").click(timeout=timeout_ms)
+        if urlsplit(page.url).scheme != "https" or urlsplit(page.url).netloc != "account.line.biz":
+            raise RuntimeError("login origin changed; credentials were not used")
+        page.get_by_role("textbox", name="Log in with business account").fill(email, timeout=timeout_ms)
+        page.get_by_role("textbox", name="Password").fill(password, timeout=timeout_ms)
+        page.get_by_role("button", name="Log in", exact=True).click(timeout=timeout_ms)
+        page.wait_for_url(lambda url: str(url) == chat_url, timeout=timeout_ms)
+    except Error:
+        # Playwright call logs may include the value passed to fill(); never print them.
+        raise RuntimeError("manual authentication required or login failed; no message was sent") from None
+    if page.url != chat_url:
+        raise RuntimeError("manual authentication required or login failed; no message was sent")
+
+
+def chat_page(browser, chat_url: str | None = None) -> Page:
     pages = [page for context in browser.contexts for page in context.pages]
-    matches = [page for page in pages if page.url.startswith("https://chat.line.biz/")]
+    matches = [page for page in pages if page.url.startswith("https://chat.line.biz/")
+               or (chat_url is not None and page.url.startswith("https://account.line.biz/"))]
     if len(matches) != 1:
         raise RuntimeError(
             "Expected exactly one authenticated LINE OA Chat page; found "
@@ -97,7 +150,9 @@ def run(args: argparse.Namespace) -> Result:
     timeout_ms = int(args.timeout_seconds * 1000)
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(args.cdp_url, timeout=timeout_ms)
-        page = chat_page(browser)
+        page = chat_page(browser, args.chat_url)
+        if args.chat_url:
+            ensure_chat_auth(page, args.chat_url, args.auto_login, timeout_ms)
         result = unique_chat_result(page, args.recipient, timeout_ms)
         result.click(timeout=timeout_ms)
 
