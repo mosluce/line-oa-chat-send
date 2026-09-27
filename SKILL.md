@@ -12,7 +12,8 @@ specific message to a named chat recipient.
 
 ## Prerequisites
 
-- The persistent Chromium profile is already authenticated to LINE by the user.
+- The persistent Chromium profile is authenticated, or the user has explicitly
+  opted into Business ID email/password reauthentication via `--auto-login`.
 - A browser session is running with its loopback CDP endpoint reachable.
 - The user has explicitly authorized the outgoing message. Do not infer a
   message other than an unambiguous test message.
@@ -30,8 +31,16 @@ specific message to a named chat recipient.
   from 60 to 3600 seconds), must be shared only in a direct private channel, and
   must be revoked immediately after login. Do not use it to send messages, browse
   unrelated sites, or perform autonomous actions.
-- Never request, handle, record, or transmit LINE passwords, OTPs, or other
-  credentials. The user completes every authentication step themselves.
+- Never request credentials in chat or include them in CLI arguments, logs,
+  screenshots, commits, or messages. The optional script-only Business ID login
+  reads `LINE_OA_BUSINESS_EMAIL` and `LINE_OA_BUSINESS_PASSWORD` from its process
+  environment. Never print or inspect their values. Keep them out of the agent's
+  prompt and Hermes config; use a private operator-managed environment for the
+  script process. This gives the script and its process owner access to the
+  password, and is only suitable for a trusted host.
+- MFA, OTP, QR, LINE-account login, SSO, captcha, and security prompts are **not**
+  automated. Stop without sending, and ask the user to complete the protected
+  interactive handoff if any appear.
 - Never log, commit, reuse, or relay a handoff URL.
 
 Revoking a handoff removes external reachability only; the browser session keeps
@@ -64,6 +73,11 @@ bash scripts/run_line_oa_chat.sh --recipient "<exact recipient>" --message "<mes
 # 6. Send, only after the user authorized this exact recipient and message.
 bash scripts/run_line_oa_chat.sh --recipient "<exact recipient>" --message "<message>" --send
 
+# Optional: visit the exact chat account first and reauthenticate if expired.
+# Credentials must already be supplied privately to this process by the operator.
+bash scripts/run_line_oa_chat.sh --chat-url "https://chat.line.biz/U..." \
+  --recipient "<exact recipient>" --message "<message>" --auto-login --send
+
 # 7. Stop the session when the work is finished. The profile is preserved.
 bash scripts/stop_line_oa_chromium.sh
 ```
@@ -89,6 +103,10 @@ You do not need to re-check these by hand.
   until a token route is armed.
 - **The send CLI refuses ambiguous recipients**, requires `--send` for the
   external side effect, and verifies the message landed before reporting success.
+- **Auto-login is opt-in**, only for the LINE Business ID email/password form at
+  `https://account.line.biz/login`, after opening a validated `chat.line.biz/U...`
+  URL. A valid session never reads credentials. Missing credentials, unfamiliar
+  redirects, failed login, and verification prompts stop before sending.
 - **Shutdown is scripted.** It revokes any armed handoff first, terminates the
   recorded process gracefully, and reports rather than force-killing on timeout.
 
@@ -99,11 +117,13 @@ You do not need to re-check these by hand.
 - **Post-send verification failed.** Do **not** retry. LINE may have accepted the
   message already, so a retry risks sending it twice. Inspect the browser first,
   then report what you found.
-- **LINE asks for a password, QR confirmation, MFA, OTP, or a security prompt.**
-  Only the user resolves these, through the handoff. Do not read, type, store,
-  relay, or log any credential or verification code.
-- **The session expired or was revoked mid-task.** Pause and ask the user to
-  reauthenticate through the handoff, then re-check before continuing.
+- **LINE asks for QR confirmation, MFA, OTP, LINE-account login, SSO, or a
+  security prompt.** Only the user resolves these through the handoff. Business
+  ID password entry is permitted only in the explicit script-only opt-in above.
+- **The session expired or was revoked mid-task.** Before any send, explicit
+  `--auto-login` may attempt Business ID reauthentication once. If it fails or
+  requires a challenge, stop and use the user-operated handoff. Never retry a
+  send after an uncertain post-send result.
 - **`doctor.sh` reports a blocker.** Report the exact missing pieces and its
   remediation. Do not invoke `sudo` or a package manager, and never weaken a
   network binding to work around a failure.
